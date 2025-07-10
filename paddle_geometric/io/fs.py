@@ -9,20 +9,31 @@ from uuid import uuid4
 
 import fsspec
 import paddle
+import paddle_geometric
 
-DEFAULT_CACHE_PATH = '/tmp/paddle_simplecache'
-
-
+DEFAULT_CACHE_PATH = '/tmp/pyg_simplecache'
+# @finshed
 def get_fs(path: str) -> fsspec.AbstractFileSystem:
-    r"""Get filesystem backend given a path URI to the resource.
+    """Get filesystem backend given a path URI to the resource.
 
-    Common example paths and dispatch result:
+    Here are some common example paths and dispatch result:
 
-    * :obj:`"/home/file"` -> LocalFileSystem
-    * :obj:`"memory://home/file"` -> MemoryFileSystem
-    * :obj:`"https://home/file"` -> HTTPFileSystem
-    * :obj:`"gs://home/file"` -> GCSFileSystem
-    * :obj:`"s3://home/file"` -> S3FileSystem
+    * :obj:`"/home/file"` ->
+      :class:`fsspec.implementations.local.LocalFileSystem`
+    * :obj:`"memory://home/file"` ->
+      :class:`fsspec.implementations.memory.MemoryFileSystem`
+    * :obj:`"https://home/file"` ->
+      :class:`fsspec.implementations.http.HTTPFileSystem`
+    * :obj:`"gs://home/file"` -> :class:`gcsfs.GCSFileSystem`
+    * :obj:`"s3://home/file"` -> :class:`s3fs.S3FileSystem`
+
+    A full list of supported backend implementations of :class:`fsspec` can be
+    found `here <https://github.com/fsspec/filesystem_spec/blob/master/fsspec/
+    registry.py#L62>`_.
+
+    The backend dispatch logic can be updated with custom backends following
+    `this tutorial <https://filesystem-spec.readthedocs.io/en/latest/
+    developer.html#implementing-a-backend>`_.
 
     Args:
         path (str): The URI to the filesystem location, *e.g.*,
@@ -71,20 +82,15 @@ def ls(path: str, detail: Literal[True]) -> List[Dict[str, Any]]:
     pass
 
 
-def ls(
-    path: str,
-    detail: bool = False,
-) -> Union[List[str], List[Dict[str, Any]]]:
+def ls(path: str, detail: bool = False) -> Union[List[str], List[Dict[str, Any]]]:
     fs = get_fs(path)
     outputs = fs.ls(path, detail=detail)
-
     if not isdisk(path):
         if detail:
             for output in outputs:
-                output['name'] = fs.unstrip_protocol(output['name'])
+                output["name"] = fs.unstrip_protocol(output["name"])
         else:
             outputs = [fs.unstrip_protocol(output) for output in outputs]
-
     return outputs
 
 
@@ -104,13 +110,13 @@ def cp(
     # Cache result if the protocol is not local:
     cache_dir: Optional[str] = None
     if not islocal(path1):
-        if log and 'pytest' not in sys.modules:
-            print(f'Downloading {path1}', file=sys.stderr)
-
+        if log and "pytest" not in sys.modules:
+            print(f"Downloading {path1}", file=sys.stderr)
         if extract and use_cache:
-            cache_dir = osp.join(DEFAULT_CACHE_PATH, uuid4().hex)
-            kwargs.setdefault('simplecache', dict(cache_storage=cache_dir))
-            path1 = f'simplecache::{path1}'
+            home_dir = torch_geometric.get_home_dir()
+            cache_dir = os.path.join(home_dir, "simplecache", uuid4().hex)
+            kwargs.setdefault("simplecache", dict(cache_storage=cache_dir))
+            path1 = f"simplecache::{path1}"
 
     # Handle automatic extraction:
     multiple_files = False
@@ -127,28 +133,32 @@ def cp(
         raise NotImplementedError(
             f"Automatic extraction of '{path1}' not yet supported")
 
-    # Perform the copy:
+    if is_path1_dir:
+        if exists(path2):
+            path2 = os.path.join(path2, os.path.basename(path1))
+        path1 = os.path.join(path1, "**")
+        multiple_files = True
     for open_file in fsspec.open_files(path1, **kwargs):
         with open_file as f_from:
             if not multiple_files:
                 if is_path2_dir:
-                    basename = osp.basename(path1)
-                    if extract and path1.endswith('.gz'):
-                        basename = '.'.join(basename.split('.')[:-1])
-                    to_path = osp.join(path2, basename)
+                    basename = os.path.basename(path1)
+                    if extract and path1.endswith(".gz"):
+                        basename = ".".join(basename.split(".")[:-1])
+                    to_path = os.path.join(path2, basename)
                 else:
                     to_path = path2
             else:
-                common_path = osp.commonprefix(
-                    [fsspec.core.strip_protocol(path1), open_file.path])
-                to_path = osp.join(path2, open_file.path[len(common_path):])
-            with fsspec.open(to_path, 'wb') as f_to:
+                common_path = os.path.commonprefix(
+                    [fsspec.core.strip_protocol(path1), open_file.path]
+                )
+                to_path = os.path.join(path2, open_file.path[len(common_path) :])
+            with fsspec.open(to_path, "wb") as f_to:
                 while True:
                     chunk = f_from.read(10 * 1024 * 1024)
                     if not chunk:
                         break
                     f_to.write(chunk)
-
     if use_cache and clear_cache and cache_dir is not None:
         try:
             rm(cache_dir)
@@ -185,5 +195,24 @@ def paddle_save(data: Any, path: str) -> None:
 
 
 def paddle_load(path: str, map_location: Any = None) -> Any:
-    with fsspec.open(path, 'rb') as f:
-        return paddle.load(f, map_location=map_location)
+    if paddle_geometric.typing.WITH_PT24:
+        try:
+            with fsspec.open(path, "rb") as f:
+                return paddle.load(path=str(f))
+        except pickle.UnpicklingError as e:
+            error_msg = str(e)
+            if "add_safe_globals" in error_msg:
+                warn_msg = "Weights only load failed. Please file an issue to make `torch.load(weights_only=True)` compatible in your case."
+                match = re.search("add_safe_globals\\(.*?\\)", error_msg)
+                if match is not None:
+                    warnings.warn(
+                        f"{warn_msg} Please use `torch.serialization.{match.group()}` to allowlist this global."
+                    )
+                else:
+                    warnings.warn(warn_msg)
+                with fsspec.open(path, "rb") as f:
+                    return paddle.load(path=str(f))
+            else:
+                raise e
+    with fsspec.open(path, "rb") as f:
+        return paddle.load(path=str(f))

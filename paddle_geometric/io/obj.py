@@ -3,7 +3,7 @@ from typing import Iterator, List, Optional, Tuple, Union
 import paddle
 from paddle_geometric.data import Data
 
-
+# @finshed
 def yield_file(in_file: str) -> Iterator[Tuple[str, List[Union[int, float]]]]:
     with open(in_file, 'r') as f:
         buf = f.read()
@@ -32,7 +32,7 @@ def read_obj(in_file: str) -> Optional[Data]:
         return None
 
     pos = paddle.to_tensor(vertices, dtype='float32')
-    face = paddle.to_tensor(faces, dtype='int64').transpose([1, 0])
+    face = paddle.to_tensor(data=faces, dtype="int64").t().contiguous()
 
     data = Data(pos=pos, face=face)
 
