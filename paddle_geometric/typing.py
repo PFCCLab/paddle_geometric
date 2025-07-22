@@ -11,6 +11,9 @@ from paddle import Tensor
 
 WITH_PADDLE_DEV = True
 
+WITH_PP30 = int(paddle.__version__.split(sep=".")[0]) >= 3
+WITH_PP31 = WITH_PP30 and int(paddle.__version__.split(sep=".")[1]) >= 1
+
 
 WITH_WINDOWS = os.name == 'nt'
 
@@ -21,29 +24,32 @@ INDEX_DTYPES: Set[paddle.dtype] = {
     paddle.int64,
 }
 
+# if not hasattr(torch, 'sparse_csc'):
+#     torch.sparse_csc = torch.sparse_coo
 
 try:
-    import pyg_lib  # noqa
-    WITH_PYG_LIB = True
-    WITH_GMM = hasattr(pyg_lib.ops, 'grouped_matmul')
-    WITH_SEGMM = hasattr(pyg_lib.ops, 'segment_matmul')
-    if WITH_SEGMM and 'pytest' in sys.modules and paddle.device.is_compiled_with_cuda():
-        try:
-            x = paddle.randn([3, 4], place='gpu')
-            ptr = paddle.to_tensor([0, 2, 3], place='gpu')
-            weight = paddle.randn([2, 4, 4], place='gpu')
-            out = pyg_lib.ops.segment_matmul(x, ptr, weight)
-        except RuntimeError:
-            WITH_GMM = False
-            WITH_SEGMM = False
-    WITH_SAMPLED_OP = hasattr(pyg_lib.ops, 'sampled_add')
-    WITH_SOFTMAX = hasattr(pyg_lib.ops, 'softmax_csr')
-    WITH_INDEX_SORT = hasattr(pyg_lib.ops, 'index_sort')
-    WITH_METIS = hasattr(pyg_lib, 'partition')
-    WITH_EDGE_TIME_NEIGHBOR_SAMPLE = ('edge_time' in inspect.signature(
-        pyg_lib.sampler.neighbor_sample).parameters)
-    WITH_WEIGHTED_NEIGHBOR_SAMPLE = ('edge_weight' in inspect.signature(
-        pyg_lib.sampler.neighbor_sample).parameters)
+    # import pyg_lib  # noqa
+    # WITH_PYG_LIB = True
+    # WITH_GMM = hasattr(pyg_lib.ops, 'grouped_matmul')
+    # WITH_SEGMM = hasattr(pyg_lib.ops, 'segment_matmul')
+    # if WITH_SEGMM and 'pytest' in sys.modules and paddle.device.is_compiled_with_cuda():
+    #     try:
+    #         x = paddle.randn(shape=[3, 4])
+    #         ptr = paddle.to_tensor(data=[0, 2, 3], place="gpu")
+    #         weight = paddle.randn(shape=[2, 4, 4])
+    #         out = pyg_lib.ops.segment_matmul(x, ptr, weight)
+    #     except RuntimeError:
+    #         WITH_GMM = False
+    #         WITH_SEGMM = False
+    # WITH_SAMPLED_OP = hasattr(pyg_lib.ops, 'sampled_add')
+    # WITH_SOFTMAX = hasattr(pyg_lib.ops, 'softmax_csr')
+    # WITH_INDEX_SORT = hasattr(pyg_lib.ops, 'index_sort')
+    # WITH_METIS = hasattr(pyg_lib, 'partition')
+    # WITH_EDGE_TIME_NEIGHBOR_SAMPLE = ('edge_time' in inspect.signature(
+    #     pyg_lib.sampler.neighbor_sample).parameters)
+    # WITH_WEIGHTED_NEIGHBOR_SAMPLE = ('edge_weight' in inspect.signature(
+    #     pyg_lib.sampler.neighbor_sample).parameters)
+    raise ImportError
 except Exception as e:
     if not isinstance(e, ImportError):  # pragma: no cover
         warnings.warn(f"An issue occurred while importing 'pyg-lib'. "
@@ -60,8 +66,9 @@ except Exception as e:
     WITH_WEIGHTED_NEIGHBOR_SAMPLE = False
 
 try:
-    import paddle_scatter  # noqa
-    WITH_PADDLE_SCATTER = True
+    raise ImportError
+    # import paddle_scatter  # noqa
+    # WITH_PADDLE_SCATTER = True
 except Exception as e:
     if not isinstance(e, ImportError):  # pragma: no cover
         warnings.warn(f"An issue occurred while importing 'paddle-scatter'. "
@@ -70,9 +77,10 @@ except Exception as e:
     WITH_PADDLE_SCATTER = False
 
 try:
-    import paddle_cluster  # noqa
-    WITH_PADDLE_CLUSTER = True
-    WITH_PADDLE_CLUSTER_BATCH_SIZE = 'batch_size' in paddle_cluster.knn.__doc__
+    raise ImportError
+    # import paddle_cluster  # noqa
+    # WITH_PADDLE_CLUSTER = True
+    # WITH_PADDLE_CLUSTER_BATCH_SIZE = 'batch_size' in paddle_cluster.knn.__doc__
 except Exception as e:
     if not isinstance(e, ImportError):  # pragma: no cover
         warnings.warn(f"An issue occurred while importing 'paddle-cluster'. "
@@ -87,9 +95,10 @@ except Exception as e:
     paddle_cluster = PaddleCluster()
 
 try:
-    import paddle_sparse  # noqa
-    from paddle_sparse import SparseStorage, SparseTensor
-    WITH_PADDLE_SPARSE = True
+    raise ImportError
+    # import paddle_sparse  # noqa
+    # from paddle_sparse import SparseStorage, SparseTensor
+    # WITH_PADDLE_SPARSE = True
 except Exception as e:
     if not isinstance(e, ImportError):  # pragma: no cover
         warnings.warn(f"An issue occurred while importing 'paddle-sparse'. "
@@ -218,9 +227,10 @@ except Exception as e:
             raise ImportError("'masked_select_nnz' requires 'paddle-sparse'")
 
 try:
-    import paddle_frame  # noqa
-    WITH_PADDLE_FRAME = True
-    from paddle_frame import TensorFrame
+    raise ImportError
+    # import paddle_frame  # noqa
+    # WITH_PADDLE_FRAME = True
+    # from paddle_frame import TensorFrame
 except Exception:
     paddle_frame = object
     WITH_PADDLE_FRAME = False
@@ -336,11 +346,11 @@ InputEdges = Union[OptTensor, EdgeType, Tuple[EdgeType, OptTensor]]
 
 # Serialization ###############################################################
 
-if hasattr(paddle, "serialization"):
-    paddle.serialization.add_safe_globals([
-        SparseTensor,
-        SparseStorage,
-        TensorFrame,
-        MockPaddleCSCTensor,
-        EdgeTypeStr,
-    ])
+# if WITH_PT24:
+#     torch.serialization.add_safe_globals([
+#         SparseTensor,
+#         SparseStorage,
+#         TensorFrame,
+#         MockTorchCSCTensor,
+#         EdgeTypeStr,
+#     ])
