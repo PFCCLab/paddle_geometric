@@ -1,5 +1,5 @@
 import io
-import os.path as osp
+import os
 import pickle
 import re
 import sys
@@ -11,8 +11,9 @@ import fsspec
 import paddle
 import paddle_geometric
 
-DEFAULT_CACHE_PATH = '/tmp/pyg_simplecache'
-# @finshed
+DEFAULT_CACHE_PATH = "/tmp/pyg_simplecache"
+
+
 def get_fs(path: str) -> fsspec.AbstractFileSystem:
     """Get filesystem backend given a path URI to the resource.
 
@@ -44,7 +45,7 @@ def get_fs(path: str) -> fsspec.AbstractFileSystem:
 
 def normpath(path: str) -> str:
     if isdisk(path):
-        return osp.normpath(path)
+        return os.path.normpath(path)
     return path
 
 
@@ -65,11 +66,11 @@ def isfile(path: str) -> bool:
 
 
 def isdisk(path: str) -> bool:
-    return 'file' in get_fs(path).protocol
+    return "file" in get_fs(path).protocol
 
 
 def islocal(path: str) -> bool:
-    return isdisk(path) or 'memory' in get_fs(path).protocol
+    return isdisk(path) or "memory" in get_fs(path).protocol
 
 
 @overload
@@ -103,36 +104,31 @@ def cp(
     clear_cache: bool = True,
 ) -> None:
     kwargs: Dict[str, Any] = {}
-
     is_path1_dir = isdir(path1)
     is_path2_dir = isdir(path2)
-
-    # Cache result if the protocol is not local:
     cache_dir: Optional[str] = None
     if not islocal(path1):
         if log and "pytest" not in sys.modules:
             print(f"Downloading {path1}", file=sys.stderr)
         if extract and use_cache:
-            home_dir = torch_geometric.get_home_dir()
+            home_dir = paddle_geometric.get_home_dir()
             cache_dir = os.path.join(home_dir, "simplecache", uuid4().hex)
             kwargs.setdefault("simplecache", dict(cache_storage=cache_dir))
             path1 = f"simplecache::{path1}"
-
-    # Handle automatic extraction:
     multiple_files = False
-    if extract and path1.endswith('.tar.gz'):
-        kwargs.setdefault('tar', dict(compression='gzip'))
-        path1 = f'tar://**::{path1}'
+    if extract and path1.endswith(".tar.gz"):
+        kwargs.setdefault("tar", dict(compression="gzip"))
+        path1 = f"tar://**::{path1}"
         multiple_files = True
-    elif extract and path1.endswith('.zip'):
-        path1 = f'zip://**::{path1}'
+    elif extract and path1.endswith(".zip"):
+        path1 = f"zip://**::{path1}"
         multiple_files = True
-    elif extract and path1.endswith('.gz'):
-        kwargs.setdefault('compression', 'infer')
+    elif extract and path1.endswith(".gz"):
+        kwargs.setdefault("compression", "infer")
     elif extract:
         raise NotImplementedError(
-            f"Automatic extraction of '{path1}' not yet supported")
-
+            f"Automatic extraction of '{path1}' not yet supported"
+        )
     if is_path1_dir:
         if exists(path2):
             path2 = os.path.join(path2, os.path.basename(path1))
@@ -180,39 +176,41 @@ def mv(path1: str, path2: str) -> None:
 def glob(path: str) -> List[str]:
     fs = get_fs(path)
     paths = fs.glob(path)
-
     if not isdisk(path):
         paths = [fs.unstrip_protocol(path) for path in paths]
-
     return paths
 
 
 def paddle_save(data: Any, path: str) -> None:
     buffer = io.BytesIO()
-    paddle.save(data, buffer)
-    with fsspec.open(path, 'wb') as f:
+    paddle.save(obj=data, path=buffer)
+    with fsspec.open(path, "wb") as f:
         f.write(buffer.getvalue())
 
 
 def paddle_load(path: str, map_location: Any = None) -> Any:
-    if paddle_geometric.typing.WITH_PT24:
-        try:
-            with fsspec.open(path, "rb") as f:
-                return paddle.load(path=str(f))
-        except pickle.UnpicklingError as e:
-            error_msg = str(e)
-            if "add_safe_globals" in error_msg:
-                warn_msg = "Weights only load failed. Please file an issue to make `torch.load(weights_only=True)` compatible in your case."
-                match = re.search("add_safe_globals\\(.*?\\)", error_msg)
-                if match is not None:
-                    warnings.warn(
-                        f"{warn_msg} Please use `torch.serialization.{match.group()}` to allowlist this global."
-                    )
-                else:
-                    warnings.warn(warn_msg)
-                with fsspec.open(path, "rb") as f:
-                    return paddle.load(path=str(f))
-            else:
-                raise e
+    # if torch_geometric.typing.WITH_PT24:
+    #     try:
+    #         with fsspec.open(path, "rb") as f:
+    #             return paddle.load(path=str(f))
+    #     except pickle.UnpicklingError as e:
+    #         error_msg = str(e)
+    #         if "add_safe_globals" in error_msg:
+    #             warn_msg = "Weights only load failed. Please file an issue to make `torch.load(weights_only=True)` compatible in your case."
+    #             match = re.search("add_safe_globals\\(.*?\\)", error_msg)
+    #             if match is not None:
+    #                 warnings.warn(
+    #                     f"{warn_msg} Please use `torch.serialization.{match.group()}` to allowlist this global."
+    #                 )
+    #             else:
+    #                 warnings.warn(warn_msg)
+    #             with fsspec.open(path, "rb") as f:
+    #                 return paddle.load(path=str(f))
+    #         else:
+    #             raise e
+    buffer = io.BytesIO()
     with fsspec.open(path, "rb") as f:
-        return paddle.load(path=str(f))
+        buffer.write(f.read())
+    buffer.seek(0)
+    return paddle.load(path=buffer)
+        

@@ -5,6 +5,9 @@ import paddle
 from paddle import Tensor
 from paddle_geometric.data import Data
 from paddle_geometric.io import parse_txt_array
+from paddle.tensor.to_string import DEFAULT_PRINT_OPTIONS, _format_tensor
+
+from paddle_geometric.typing import MAX_INT64
 
 # @finshed
 def parse_off(src: List[str]) -> Data:
@@ -28,7 +31,10 @@ def face_to_tri(face: List[str]) -> paddle.Tensor:
     rect = rect.to("int64")
     if rect.size > 0:
         first, second = rect[:, [0, 1, 2]], rect[:, [0, 2, 3]]
-        return paddle.concat(x=[triangle, first, second], axis=0).t().contiguous()
+        if triangle.size > 0:
+            triangle = paddle.concat(x=[triangle, first, second], axis=0).t().contiguous()
+        else:
+            return paddle.concat(x=[first, second], axis=0).t().contiguous()
     return triangle.t().contiguous()
 
 
@@ -62,16 +68,20 @@ def write_off(data: Data, path: str) -> None:
     num_vertices = paddle.full((num_faces, 1), face.shape[1], dtype='int64')
     face = paddle.concat([num_vertices, face], axis=-1)
 
+    threshold = DEFAULT_PRINT_OPTIONS.threshold
+    paddle.set_printoptions(threshold=max(pos.size, face.size)+1)
+
     # Format positions and face data for writing
-    pos_repr = re.sub(',', '', paddle.to_string(pos))
-    pos_repr = '\n'.join([x.strip() for x in pos_repr.split('\n')])[:-1]
+    pos_repr = re.sub(',', '', _format_tensor(pos, summary='', indent=0))
+    pos_repr = '\n'.join([x[2:-1] for x in pos_repr.split('\n')])[:-1]
 
-    face_repr = re.sub(',', '', paddle.to_string(face))
-    face_repr = '\n'.join([x.strip() for x in face_repr.split('\n')])[:-1]
-
+    face_repr = re.sub(',', '', _format_tensor(face, summary='', indent=0))
+    face_repr = '\n'.join([x[2:-1] for x in face_repr.split('\n')])[:-1]
     with open(path, 'w') as f:
         f.write(f'OFF\n{num_nodes} {num_faces} 0\n')
         f.write(pos_repr)
         f.write('\n')
         f.write(face_repr)
         f.write('\n')
+    paddle.set_printoptions(threshold=threshold)
+

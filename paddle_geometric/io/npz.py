@@ -7,7 +7,6 @@ from paddle_geometric.data import Data
 from paddle_geometric.utils import remove_self_loops
 from paddle_geometric.utils import to_undirected as to_undirected_fn
 
-# @finshed
 def read_npz(path: str, to_undirected: bool = True) -> Data:
     with np.load(path) as f:
         return parse_npz(f, to_undirected=to_undirected)

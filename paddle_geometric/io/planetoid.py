@@ -56,7 +56,7 @@ def read_planetoid_data(folder: str, prefix: str) -> Data:
         value = paddle.concat(
             x=[value, paddle.ones(shape=isolated_idx.shape[0], dtype=value.dtype)]
         )
-        x = to_torch_csr_tensor(
+        x = to_paddle_csr_tensor(
             edge_index=paddle.stack(x=[row, col], axis=0),
             edge_attr=value,
             size=(x.shape[0], isolated_idx.shape[0] + x.shape[1]),
