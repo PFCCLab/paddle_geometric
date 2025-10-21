@@ -376,18 +376,16 @@ def to_edge_index(adj: Union[Tensor, SparseTensor]) -> Tuple[Tensor, Tensor]:
     if isinstance(adj, SparseTensor):
         row, col, value = adj.coo()
         if value is None:
-            value = paddle.ones(row.size(0), device=row.device)
+            value = paddle.ones(row.size(0), device=row.place)
         return paddle.stack([row, col], dim=0).long(), value
 
-    if adj.layout == NotImplementedError(
-            "paddle.sparse_coo is not implemented in Paddle."):
-        adj = adj._coalesced_(True)
+    if adj.is_sparse_coo():
+        adj = adj.coalesce()
         return adj.indices().detach().long(), adj.values()
 
-    if adj.layout == NotImplementedError(
-            "paddle.sparse_csr is not implemented in Paddle."):
-        row = ptr2index(adj.crow_indices().detach())
-        col = adj.col_indices().detach()
+    if adj.is_sparse_csr():
+        row = ptr2index(adj.crows().detach())
+        col = adj.cols().detach()
         return paddle.stack([row, col], dim=0).long(), adj.values()
 
     raise ValueError(f"Unexpected sparse tensor layout (got '{adj.layout}')")
