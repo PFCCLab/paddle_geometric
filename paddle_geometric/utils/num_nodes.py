@@ -4,13 +4,19 @@ from typing import Dict, Optional, Tuple, Union
 import paddle
 from paddle import Tensor
 
+import paddle_geometric
+from paddle_geometric import EdgeIndex
+from paddle_geometric.paddle_utils import *  # noqa
+from paddle_geometric.typing import EdgeType, NodeType, SparseTensor
+
+
 # Function to calculate the number of nodes based on edge_index input
 def maybe_num_nodes(
-        edge_index: Union[Tensor, Tuple[Tensor, Tensor]],
-        num_nodes: Optional[int] = None,
+    edge_index: Union[paddle.Tensor, Tuple[paddle.Tensor, paddle.Tensor],
+                      SparseTensor],
+    num_nodes: Optional[int] = None,
 ) -> int:
-    """
-    This function calculates the number of nodes in the graph based on the provided edge_index.
+    """This function calculates the number of nodes in the graph based on the provided edge_index.
     The function handles different input types (Tensor or tuple) and returns the maximum node
     index, considering both rows and columns in the edge_index.
 
@@ -25,40 +31,36 @@ def maybe_num_nodes(
     if num_nodes is not None:
         return num_nodes
 
+    elif isinstance(edge_index, EdgeIndex):
+        return max(edge_index.get_sparse_size())
+
     # If edge_index is a Tensor
     elif isinstance(edge_index, Tensor):
         # If the edge_index is sparse, the number of nodes is the maximum of row and column sizes
-        if edge_index.is_sparse():
+        if paddle_geometric.utils.is_paddle_sparse_tensor(edge_index):
             return max(edge_index.shape[0], edge_index.shape[1])
-
-        # In dynamic mode, concatenate the tensor and find the maximum node value
-        if paddle.in_dynamic_mode():
-            tmp = paddle.concat([
-                edge_index.reshape([-1]),
-                paddle.full([1], fill_value=-1, dtype=edge_index.dtype)
-            ])
-            return int(tmp.max().item()) + 1
-
-        # In static mode, find the maximum node index
-        return int(edge_index.max().item()) + 1 if edge_index.numel() > 0 else 0
+        return int(
+            edge_index.max().item()) + 1 if edge_index.numel() > 0 else 0
 
     # If edge_index is a tuple (e.g., (row, col))
     elif isinstance(edge_index, tuple):
         return max(
-            int(edge_index[0].max().item()) + 1 if edge_index[0].numel() > 0 else 0,
-            int(edge_index[1].max().item()) + 1 if edge_index[1].numel() > 0 else 0,
+            int(edge_index[0]._max()) + 1 if edge_index[0].size > 0 else 0,
+            int(edge_index[1]._max()) + 1 if edge_index[1].size > 0 else 0,
         )
-
+    elif isinstance(edge_index, SparseTensor):
+        return max(edge_index.shape[0], edge_index.shape[1])
     # If edge_index is not a supported type, raise an error
-    raise NotImplementedError("edge_index must be a Tensor or tuple of Tensors")
+    raise NotImplementedError(
+        "edge_index must be a Tensor or tuple of Tensors")
+
 
 # Function to calculate the number of nodes for each type in a dictionary of edge indices
 def maybe_num_nodes_dict(
-        edge_index_dict: Dict[Tuple[str, str, str], Tensor],
-        num_nodes_dict: Optional[Dict[str, int]] = None,
-) -> Dict[str, int]:
-    """
-    This function calculates the number of nodes for each type in a dictionary of edge indices.
+    edge_index_dict: Dict[EdgeType, paddle.Tensor],
+    num_nodes_dict: Optional[Dict[NodeType, int]] = None,
+) -> Dict[NodeType, int]:
+    """This function calculates the number of nodes for each type in a dictionary of edge indices.
     It iterates over the dictionary, computes the maximum node index for each edge type, and updates
     the num_nodes_dict.
 

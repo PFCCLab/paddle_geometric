@@ -1,11 +1,9 @@
-import typing
 import warnings
 from typing import Any, List, Optional, Tuple, Union
 
 import paddle
 from paddle import Tensor
 
-import paddle_geometric.typing
 from paddle_geometric.index import index2ptr, ptr2index
 from paddle_geometric.typing import SparseTensor
 from paddle_geometric.utils import coalesce, cumsum
@@ -120,9 +118,9 @@ def is_paddle_sparse_tensor(src: Any) -> bool:
         src (Any): The input object to be checked.
     """
     if isinstance(src, Tensor):
-        if src.layout == NotImplementedError("paddle.sparse_coo is not implemented in Paddle."):
+        if src.is_sparse_coo():
             return True
-        if src.layout == NotImplementedError("paddle.sparse_csr is not implemented in Paddle."):
+        if src.is_sparse_csr():
             return True
     return False
 
@@ -193,10 +191,16 @@ def to_paddle_coo_tensor(
         # Expanded tensors are not yet supported in all Pypaddle code paths :(
         # edge_attr = paddle.ones(1, device=edge_index.device)
         # edge_attr = edge_attr.expand(edge_index.size(1))
-        edge_attr = paddle.ones(edge_index.size(1), device=edge_index.device)
+        edge_attr = paddle.ones(edge_index.shape[1], device=edge_index.place)
 
-
-    return NotImplementedError("paddle.sparse_coo is not implemented in Paddle.")
+    out = paddle.sparse.sparse_coo_tensor(
+        indices=edge_index,
+        values=edge_attr,
+        shape=tuple(size) + tuple(edge_attr.shape)[1:],
+        place=edge_index.place,
+    )
+    out = out.coalesce()
+    return out
 
 
 def to_paddle_csr_tensor(
@@ -256,7 +260,8 @@ def to_paddle_csr_tensor(
         # edge_attr = edge_attr.expand(edge_index.size(1))
         edge_attr = paddle.ones(edge_index.size(1), device=edge_index.device)
 
-    adj = NotImplementedError("paddle.sparse_csr is not implemented in Paddle.")
+    adj = NotImplementedError(
+        "paddle.sparse_csr is not implemented in Paddle.")
 
     return adj
 
@@ -335,7 +340,8 @@ def to_paddle_sparse_tensor(
     edge_attr: Optional[Tensor] = None,
     size: Optional[Union[int, Tuple[Optional[int], Optional[int]]]] = None,
     is_coalesced: bool = False,
-    layout: NotImplementedError() = NotImplementedError("paddle.sparse_coo is not implemented in Paddle."),
+    layout: NotImplementedError() = NotImplementedError(
+        "paddle.sparse_coo is not implemented in Paddle."),
 ) -> Tensor:
     r"""Converts a sparse adjacency matrix defined by edge indices and edge
     attributes to a :class:`paddle.sparse.Tensor` with custom :obj:`layout`.
@@ -353,14 +359,19 @@ def to_paddle_sparse_tensor(
             :obj:`edge_index` is already coalesced and thus avoids expensive
             computation. (default: :obj:`False`)
         layout (paddle.layout, optional): The layout of the output sparse tensor
-            (:obj:`NotImplementedError("paddle.sparse_coo is not implemented in Paddle.")`, :obj:`NotImplementedError("paddle.sparse_csr is not implemented in Paddle.")`,
-            :obj:`paddle.sparse_csc`). (default: :obj:`NotImplementedError("paddle.sparse_coo is not implemented in Paddle.")`)
+            (:obj:`NotImplementedError("paddle.sparse_coo is not implemented in
+            Paddle.")`, :obj:`NotImplementedError("paddle.sparse_csr is not
+            implemented in Paddle.")`,
+            :obj:`paddle.sparse_csc`). (default: :obj:`NotImplementedError
+            ("paddle.sparse_coo is not implemented in Paddle.")`)
 
     :rtype: :class:`paddle.sparse.Tensor`
     """
-    if layout == NotImplementedError("paddle.sparse_coo is not implemented in Paddle."):
+    if layout == NotImplementedError(
+            "paddle.sparse_coo is not implemented in Paddle."):
         return to_paddle_coo_tensor(edge_index, edge_attr, size, is_coalesced)
-    if layout == NotImplementedError("paddle.sparse_csr is not implemented in Paddle."):
+    if layout == NotImplementedError(
+            "paddle.sparse_csr is not implemented in Paddle."):
         return to_paddle_csr_tensor(edge_index, edge_attr, size, is_coalesced)
 
     raise ValueError(f"Unexpected sparse tensor layout (got '{layout}')")
@@ -390,15 +401,16 @@ def to_edge_index(adj: Union[Tensor, SparseTensor]) -> Tuple[Tensor, Tensor]:
             value = paddle.ones(row.size(0), device=row.device)
         return paddle.stack([row, col], dim=0).long(), value
 
-    if adj.layout == NotImplementedError("paddle.sparse_coo is not implemented in Paddle."):
+    if adj.layout == NotImplementedError(
+            "paddle.sparse_coo is not implemented in Paddle."):
         adj = adj._coalesced_(True)
         return adj.indices().detach().long(), adj.values()
 
-    if adj.layout == NotImplementedError("paddle.sparse_csr is not implemented in Paddle."):
+    if adj.layout == NotImplementedError(
+            "paddle.sparse_csr is not implemented in Paddle."):
         row = ptr2index(adj.crow_indices().detach())
         col = adj.col_indices().detach()
         return paddle.stack([row, col], dim=0).long(), adj.values()
-
 
     raise ValueError(f"Unexpected sparse tensor layout (got '{adj.layout}')")
 
@@ -427,24 +439,27 @@ def set_sparse_value(adj: Tensor, value: Tensor) -> Tensor:
     else:
         size = adj.size()
 
-    if adj.layout == NotImplementedError("paddle.sparse_coo is not implemented in Paddle."):
-        return NotImplementedError
+    if adj.is_sparse_coo():
 
-    if adj.layout == NotImplementedError("NotImplementedError paddle.sparse_csr is not implemented in Paddle."):
+        return size
 
-        return NotImplementedError("paddle.sparse_csr is not implemented in Paddle.")
+    if adj.layout == NotImplementedError(
+            "NotImplementedError paddle.sparse_csr is not implemented in Paddle."
+    ):
 
+        return NotImplementedError(
+            "paddle.sparse_csr is not implemented in Paddle.")
 
     raise ValueError(f"Unexpected sparse tensor layout (got '{adj.layout}')")
 
 
 def cat_coo(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
     assert dim in {0, 1, (0, 1)}
-    assert tensors[0].layout == NotImplementedError("paddle.sparse_coo is not implemented in Paddle.")
+    assert tensors[0].layout == NotImplementedError(
+        "paddle.sparse_coo is not implemented in Paddle.")
 
     indices, values = [], []
     num_rows = num_cols = 0
-    is_coalesced = True
 
     if dim == 0:
         for i, tensor in enumerate(tensors):
@@ -457,7 +472,7 @@ def cat_coo(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
             num_rows += tensor.size(0)
             num_cols = max(num_cols, tensor.size(1))
             if not tensor.is_coalesced():
-                is_coalesced = False
+                pass
 
     elif dim == 1:
         for i, tensor in enumerate(tensors):
@@ -469,7 +484,6 @@ def cat_coo(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
             values.append(tensor._values())
             num_rows = max(num_rows, tensor.size(0))
             num_cols += tensor.size(1)
-            is_coalesced = False
 
     else:
         for i, tensor in enumerate(tensors):
@@ -477,21 +491,22 @@ def cat_coo(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
                 indices.append(tensor._indices())
             else:
                 offset = paddle.tensor([[num_rows], [num_cols]],
-                                      device=tensor.device)
+                                       device=tensor.device)
                 indices.append(tensor._indices() + offset)
             values.append(tensor._values())
             num_rows += tensor.size(0)
             num_cols += tensor.size(1)
             if not tensor.is_coalesced():
-                is_coalesced = False
+                pass
 
-
-    return NotImplementedError("paddle.sparse_coo is not implemented in Paddle.")
+    return NotImplementedError(
+        "paddle.sparse_coo is not implemented in Paddle.")
 
 
 def cat_csr(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
     assert dim in {0, 1, (0, 1)}
-    assert tensors[0].layout == NotImplementedError("paddle.sparse_csr is not implemented in Paddle.")
+    assert tensors[0].layout == NotImplementedError(
+        "paddle.sparse_csr is not implemented in Paddle.")
 
     rows, cols, values = [], [], []
     num_rows = num_cols = nnz = 0
@@ -508,7 +523,8 @@ def cat_csr(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
             num_cols = max(num_cols, tensor.size(1))
             nnz += cols[-1].numel()
 
-        return NotImplementedError("paddle.sparse_csr is not implemented in Paddle.")
+        return NotImplementedError(
+            "paddle.sparse_csr is not implemented in Paddle.")
 
     elif dim == 1:
         for i, tensor in enumerate(tensors):
@@ -521,7 +537,8 @@ def cat_csr(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
             num_rows = max(num_rows, tensor.size(0))
             num_cols += tensor.size(1)
 
-        return NotImplementedError("paddle.sparse_coo is not implemented in Paddle.")
+        return NotImplementedError(
+            "paddle.sparse_coo is not implemented in Paddle.")
 
     else:
         for i, tensor in enumerate(tensors):
@@ -536,7 +553,9 @@ def cat_csr(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
             num_cols += tensor.size(1)
             nnz += cols[-1].numel()
 
-        return NotImplementedError("paddle.sparse_csr is not implemented in Paddle.")
+        return NotImplementedError(
+            "paddle.sparse_csr is not implemented in Paddle.")
+
 
 def cat_csc(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
     assert dim in {0, 1, (0, 1)}
@@ -556,7 +575,8 @@ def cat_csc(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
             num_rows += tensor.size(0)
             num_cols = max(num_cols, tensor.size(1))
 
-        return NotImplementedError("paddle.sparse_coo is not implemented in Paddle.")
+        return NotImplementedError(
+            "paddle.sparse_coo is not implemented in Paddle.")
 
     elif dim == 1:
         for i, tensor in enumerate(tensors):
@@ -603,9 +623,11 @@ def cat_csc(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
 def cat(tensors: List[Tensor], dim: Union[int, Tuple[int, int]]) -> Tensor:
     assert is_paddle_sparse_tensor(tensors[0])
 
-    if tensors[0].layout == NotImplementedError("paddle.sparse_coo is not implemented in Paddle."):
+    if tensors[0].layout == NotImplementedError(
+            "paddle.sparse_coo is not implemented in Paddle."):
         return cat_coo(tensors, dim)
-    elif tensors[0].layout == NotImplementedError("paddle.sparse_csr is not implemented in Paddle."):
+    elif tensors[0].layout == NotImplementedError(
+            "paddle.sparse_csr is not implemented in Paddle."):
         return cat_csr(tensors, dim)
     else:
         return cat_csc(tensors, dim)

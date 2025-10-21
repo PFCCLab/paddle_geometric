@@ -73,6 +73,7 @@ repos:
     hooks:
       - id: flake8
         name: Check PEP8
+        args: ['--max-line-length=120']
         additional_dependencies: [Flake8-pyproject]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
