@@ -78,9 +78,12 @@ class FakeDataset(InMemoryDataset):
         data = Data()
 
         if self._num_classes > 0 and self.task == 'node':
-            data.y = paddle.randint(self._num_classes, shape=[num_nodes, ])
+            data.y = paddle.randint(self._num_classes, shape=[
+                num_nodes,
+            ])
         elif self._num_classes > 0 and self.task == 'graph':
-            data.y = paddle.to_tensor([random.randint(0, self._num_classes - 1)])
+            data.y = paddle.to_tensor(
+                [random.randint(0, self._num_classes - 1)])
 
         data.edge_index = get_edge_index(num_nodes, num_nodes, self.avg_degree,
                                          self.is_undirected, remove_loops=True)
@@ -89,10 +92,13 @@ class FakeDataset(InMemoryDataset):
             x = paddle.randn([num_nodes, self.num_channels])
             if self._num_classes > 0 and self.task == 'node':
                 assert isinstance(data.y, Tensor)
-                x = x + data.y.unsqueeze(1)
+                if data.y.is_floating_point():
+                    x = x + data.y.unsqueeze(1).cast(x.dtype)
+                else:
+                    x = x + data.y.unsqueeze(1)
             elif self._num_classes > 0 and self.task == 'graph':
                 assert isinstance(data.y, Tensor)
-                x = x + data.y
+                x = x + data.y.cast(x.dtype)
             data.x = x
         else:
             data.num_nodes = num_nodes
@@ -223,7 +229,8 @@ class FakeHeteroDataset(InMemoryDataset):
                 store.edge_weight = paddle.rand([store.num_edges])
 
         if self._num_classes > 0 and self.task == 'graph':
-            data.y = paddle.to_tensor([random.randint(0, self._num_classes - 1)])
+            data.y = paddle.to_tensor(
+                [random.randint(0, self._num_classes - 1)])
 
         for feature_name, feature_shape in self.kwargs.items():
             setattr(data, feature_name, paddle.randn([feature_shape]))
@@ -255,8 +262,12 @@ def get_edge_index(
 ) -> Tensor:
 
     num_edges = int(num_src_nodes * avg_degree)
-    row = paddle.randint(num_src_nodes, shape=[num_edges, ], dtype=paddle.int64)
-    col = paddle.randint(num_dst_nodes, shape=[num_edges, ], dtype=paddle.int64)
+    row = paddle.randint(num_src_nodes, shape=[
+        num_edges,
+    ], dtype=paddle.int64)
+    col = paddle.randint(num_dst_nodes, shape=[
+        num_edges,
+    ], dtype=paddle.int64)
     edge_index = paddle.stack([row, col], axis=0)
 
     if remove_loops:
