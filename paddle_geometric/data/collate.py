@@ -12,11 +12,9 @@ from typing import (
     Union,
 )
 
-import numpy as np
 import paddle
 from paddle import Tensor
 
-import paddle_geometric.typing
 from paddle_geometric import EdgeIndex, Index
 from paddle_geometric.data.data import BaseData
 from paddle_geometric.data.storage import BaseStorage, NodeStorage
@@ -27,7 +25,7 @@ from paddle_geometric.typing import (
     paddle_frame,
     paddle_sparse,
 )
-from paddle_geometric.utils import cumsum, is_sparse, is_paddle_sparse_tensor
+from paddle_geometric.utils import cumsum, is_paddle_sparse_tensor, is_sparse
 from paddle_geometric.utils.sparse import cat
 
 T = TypeVar('T')
@@ -85,7 +83,8 @@ def collate(
             value, slices, incs = _collate(attr, values, data_list, stores,
                                            increment)
 
-            if isinstance(value, Tensor) and paddle.device.get_device() != 'cpu':
+            if isinstance(value,
+                          Tensor) and paddle.device.get_device() != 'cpu':
                 device = value.place
 
             out_store[attr] = value
@@ -132,21 +131,56 @@ def _collate(
         cat_dim = data_list[0].__cat_dim__(key, elem, stores[0])
         if cat_dim is None or elem.ndim == 0:
             values = [value.unsqueeze(0) for value in values]
-        sizes = paddle.to_tensor([value.shape[cat_dim or 0] for value in values])
+        sizes = paddle.to_tensor(
+            [value.shape[cat_dim or 0] for value in values])
         slices = cumsum(sizes)
         if increment:
             incs = get_incs(key, values, data_list, stores)
             if incs.ndim > 1 or int(incs[-1]) != 0:
-                values = [
-                    value + inc for value, inc in zip(values, incs)
-                ]
+                values = [value + inc for value, inc in zip(values, incs)]
         else:
             incs = None
-
         value = paddle.concat(values, axis=cat_dim or 0)
+        if increment and isinstance(value, Index) and values[0].is_sorted:
+            # Check whether the whole `Index` is sorted:
+            if (value.diff() >= 0).all():
+                value._is_sorted = True
 
+        if increment and isinstance(value, EdgeIndex) and values[0].is_sorted:
+            # Check whether the whole `EdgeIndex` is sorted by row:
+            if values[0].is_sorted_by_row and (value[0].diff() >= 0).all():
+                value._sort_order = SortOrder.ROW
+            # Check whether the whole `EdgeIndex` is sorted by column:
+            elif values[0].is_sorted_by_col and (value[1].diff() >= 0).all():
+                value._sort_order = SortOrder.COL
         return value, slices, incs
+    elif isinstance(elem, TensorFrame):
+        key = str(key)
+        sizes = paddle.to_tensor([value.num_rows for value in values])
+        slices = cumsum(sizes)
+        value = paddle_frame.cat(values, dim=0)
+        return value, slices, None
 
+    elif is_sparse(elem) and increment:
+        # Concatenate a list of `SparseTensor` along the `cat_dim`.
+        # NOTE: `cat_dim` may return a tuple to allow for diagonal stacking.
+        key = str(key)
+        cat_dim = data_list[0].__cat_dim__(key, elem, stores[0])
+        cat_dims = (cat_dim, ) if isinstance(cat_dim, int) else cat_dim
+        repeats = []
+        for value in values:
+            tmp = []
+            for dim in cat_dims:
+                tmp.append(value.shape[dim]
+                           if isinstance(value, Tensor) else value.size(dim))
+            repeats.append(tmp)
+
+        slices = cumsum(paddle.to_tensor(repeats))
+        if is_paddle_sparse_tensor(elem):
+            value = cat(values, dim=cat_dim)
+        else:
+            value = paddle_sparse.cat(values, dim=cat_dim)
+        return value, slices, None
     elif isinstance(elem, (int, float)):
         value = paddle.to_tensor(values)
         if increment:
@@ -165,7 +199,8 @@ def _collate(
                 k, [v[k] for v in values], data_list, stores, increment)
         return value_dict, slice_dict, inc_dict
 
-    elif isinstance(elem, Sequence) and not isinstance(elem, str):
+    elif (isinstance(elem, Sequence) and not isinstance(elem, str)
+          and len(elem) > 0 and isinstance(elem[0], (Tensor, SparseTensor))):
         value_list, slice_list, inc_list = [], [], []
         for i in range(len(elem)):
             value, slices, incs = _collate(key, [v[i] for v in values],
@@ -187,7 +222,24 @@ def _batch_and_ptr(
     if isinstance(slices, Tensor) and slices.ndim == 1:
         repeats = slices[1:] - slices[:-1]
         batch = repeat_interleave(repeats.tolist(), device=device)
-        ptr = cumsum(repeats)
+        ptr = cumsum(repeats.to(device=device))
+        return batch, ptr
+
+    elif isinstance(slices, Mapping):
+        # Recursively batch elements of dictionaries.
+        batch, ptr = {}, {}
+        for k, v in slices.items():
+            batch[k], ptr[k] = _batch_and_ptr(v, device)
+        return batch, ptr
+
+    elif (isinstance(slices, Sequence) and not isinstance(slices, str)
+          and isinstance(slices[0], Tensor)):
+        # Recursively batch elements of lists.
+        batch, ptr = [], []
+        for s in slices:
+            sub_batch, sub_ptr = _batch_and_ptr(s, device)
+            batch.append(sub_batch)
+            ptr.append(sub_ptr)
         return batch, ptr
     else:
         return None, None
@@ -197,7 +249,7 @@ def repeat_interleave(
     repeats: List[int],
     device: Optional[paddle.CPUPlace] = None,
 ) -> Tensor:
-    outs = [paddle.full([n], i, dtype='int64') for i, n in enumerate(repeats)]
+    outs = [paddle.full([n], i, device=device) for i, n in enumerate(repeats)]
     return paddle.concat(outs, axis=0)
 
 
@@ -207,4 +259,8 @@ def get_incs(key, values: List[Any], data_list: List[BaseData],
         data.__inc__(key, value, store)
         for value, data, store in zip(values, data_list, stores)
     ]
-    return cumsum(paddle.to_tensor(repeats[:-1]))
+    if isinstance(repeats[0], Tensor):
+        repeats = paddle.stack(repeats, axis=0)
+    else:
+        repeats = paddle.to_tensor(repeats)
+    return cumsum(repeats[:-1])
