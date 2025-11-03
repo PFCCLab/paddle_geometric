@@ -4,6 +4,7 @@ import paddle
 from paddle import Tensor
 
 from paddle_geometric import EdgeIndex
+from paddle_geometric.utils import scatter
 from paddle_geometric.utils.num_nodes import maybe_num_nodes
 from paddle_geometric.utils.sparse import (
     is_paddle_sparse_tensor,
@@ -377,56 +378,55 @@ def add_self_loops(
         A tuple containing the new `edge_index` and the associated `edge_attr`.
 
     """
-    if isinstance(num_nodes, (tuple, list)):
-        size = (num_nodes[0], num_nodes[1])
+    layout = None
+
+    is_sparse = is_paddle_sparse_tensor(edge_index)
+    value: Optional[paddle.Tensor] = None
+    if is_sparse:
+        assert edge_attr is None
+        if edge_index.is_sparse_coo():
+            layout = "coo"
+        elif edge_index.is_sparse_csr():
+            layout = "csr"
+        else:
+            raise NotImplementedError()
+
+        size = edge_index.shape[0], edge_index.shape[1]
+        N = min(size)
+        edge_index, value = to_edge_index(edge_index)
+    elif isinstance(num_nodes, (tuple, list)):
+        size = num_nodes[0], num_nodes[1]
         N = min(size)
     else:
-        N = num_nodes if num_nodes is not None else paddle.max(edge_index) + 1
-        size = (N, N)
+        N = maybe_num_nodes(edge_index, num_nodes)
+        size = N, N
 
-    device = edge_index.place
-
-    loop_index = paddle.arange(0, N, dtype=edge_index.dtype,
-                               device=device).reshape([1, -1])
-    loop_index = paddle.concat([loop_index, loop_index], axis=0)
-
-    full_edge_index = paddle.concat([edge_index, loop_index], axis=1)
-
+    if isinstance(edge_index, EdgeIndex):
+        loop_index: Tensor = EdgeIndex(
+            paddle.arange(start=0, end=N).view(1,
+                                               -1).tile(repeat_times=[2, 1]),
+            sparse_size=(N, N),
+            is_undirected=True,
+        )
+    else:
+        loop_index = paddle.arange(start=0,
+                                   end=N).view(1, -1).tile(repeat_times=[2, 1])
+    full_edge_index = paddle.concat(x=[edge_index, loop_index], axis=1)
+    if is_sparse:
+        assert edge_attr is None
+        assert value is not None
+        loop_attr = compute_loop_attr(edge_index, value, N, is_sparse,
+                                      fill_value)
+        value = paddle.concat(x=[value, loop_attr], axis=0)
+        if layout == "coo":
+            return to_paddle_coo_tensor(full_edge_index, value, size), None
+        elif layout == "csr":
+            return to_paddle_csr_tensor(full_edge_index, value, size), None
+        raise ValueError(f"Unexpected sparse tensor layout (got '{layout}')")
     if edge_attr is not None:
-        if isinstance(fill_value, (float, int)):
-            loop_attr = paddle.full(
-                [N] + list(edge_attr.shape[1:]),
-                fill_value=fill_value,
-                dtype=edge_attr.dtype,
-            )
-        elif isinstance(fill_value, str):
-            if fill_value == "add":
-                loop_attr = paddle.scatter(
-                    paddle.zeros_like(edge_attr),
-                    edge_index[1],
-                    edge_attr,
-                    overwrite=False,
-                )
-            elif fill_value == "mean":
-                count = paddle.scatter(
-                    paddle.zeros([N] + [1] * (len(edge_attr.shape) - 1)),
-                    edge_index[1],
-                    paddle.ones_like(edge_attr),
-                    overwrite=False,
-                )
-                loop_attr = paddle.scatter(
-                    paddle.zeros_like(edge_attr),
-                    edge_index[1],
-                    edge_attr,
-                    overwrite=False,
-                ) / (count + 1e-9)
-            else:
-                raise ValueError(f"Unsupported fill_value '{fill_value}'")
-        else:
-            raise ValueError("Invalid fill_value type")
-
-        edge_attr = paddle.concat([edge_attr, loop_attr], axis=0)
-
+        loop_attr = compute_loop_attr(edge_index, edge_attr, N, is_sparse,
+                                      fill_value)
+        edge_attr = paddle.concat(x=[edge_attr, loop_attr], axis=0)
     return full_edge_index, edge_attr
 
 
@@ -553,38 +553,29 @@ def add_remaining_self_loops(  # noqa: F811
     N = maybe_num_nodes(edge_index, num_nodes)
     mask = edge_index[0] != edge_index[1]
 
-    device = edge_index.place
-
-    if not paddle.in_dynamic_mode() and isinstance(edge_index, EdgeIndex):
+    if isinstance(edge_index, EdgeIndex):
         loop_index: Tensor = EdgeIndex(
-            paddle.arange(0, N).view([1, -1]).tile((2, 1), device=device),
+            paddle.arange(start=0, end=N).view(1,
+                                               -1).tile(repeat_times=[2, 1]),
             sparse_size=(N, N),
             is_undirected=True,
         )
     else:
-        loop_index = paddle.arange(0, N).reshape([1, -1]).tile((2, 1))
-
+        loop_index = paddle.arange(start=0,
+                                   end=N).view(1, -1).tile(repeat_times=[2, 1])
     if edge_attr is not None:
-
-        loop_attr = compute_loop_attr(  #
-            edge_index, edge_attr, N, False, fill_value)
-
+        loop_attr = compute_loop_attr(edge_index, edge_attr, N, False,
+                                      fill_value)
         inv_mask = ~mask
         loop_attr[edge_index[0][inv_mask]] = edge_attr[inv_mask]
-
-        edge_attr = paddle.concat([edge_attr[mask], loop_attr], axis=0)
-
+        edge_attr = paddle.concat(x=[edge_attr[mask], loop_attr], axis=0)
     is_undirected = False
-    if not paddle.in_dynamic_mode() and isinstance(edge_index, EdgeIndex):
+    if isinstance(edge_index, EdgeIndex):
         is_undirected = edge_index.is_undirected
-
     edge_index = edge_index[:, mask]
-
-    if not paddle.in_dynamic_mode() and isinstance(edge_index, EdgeIndex):
+    if isinstance(edge_index, EdgeIndex):
         edge_index._is_undirected = is_undirected
-
-    edge_index = paddle.concat([edge_index, loop_index], axis=1)
-
+    edge_index = paddle.concat(x=[edge_index, loop_index], axis=1)
     return edge_index, edge_attr
 
 
@@ -629,8 +620,9 @@ def get_self_loop_attr(
 
     num_nodes = num_nodes if num_nodes is not None else int(
         paddle.max(edge_index) + 1)
-    full_loop_attr = paddle.zeros((num_nodes, ) + loop_attr.shape[1:],
-                                  dtype=loop_attr.dtype)
+    full_loop_attr = paddle.zeros(
+        shape=(num_nodes, ) + tuple(loop_attr.shape)[1:],
+        dtype=loop_attr.dtype)
     full_loop_attr[loop_index] = loop_attr
 
     return full_loop_attr
@@ -699,39 +691,14 @@ def compute_loop_attr(
         return paddle.full(size, fill_value, dtype=edge_attr.dtype)
 
     elif isinstance(fill_value, Tensor):
-        size = (num_nodes, ) + tuple(edge_attr.shape[1:])
-        loop_attr = fill_value.astype(edge_attr.dtype)
-        if len(edge_attr.shape) != len(loop_attr.shape):
-            loop_attr = loop_attr.unsqueeze(0)
-        return paddle.expand(loop_attr, size)
+        size = (num_nodes, ) + tuple(edge_attr.shape)[1:]
+        loop_attr = fill_value.to(edge_attr.place, edge_attr.dtype)
+        if edge_attr.dim() != loop_attr.dim():
+            loop_attr = loop_attr.unsqueeze(axis=0)
+        return loop_attr.expand(shape=size).contiguous()
 
     elif isinstance(fill_value, str):
         col = edge_index[0] if is_sparse else edge_index[1]
-        if fill_value == "add":
-            return paddle.scatter(
-                paddle.zeros([num_nodes] + list(edge_attr.shape[1:]),
-                             dtype=edge_attr.dtype),
-                col,
-                edge_attr,
-                overwrite=False,
-            )
-        elif fill_value == "mean":
-            counts = paddle.scatter(
-                paddle.zeros([num_nodes], dtype="int32"),
-                col,
-                paddle.ones([edge_attr.shape[0]], dtype="int32"),
-                overwrite=False,
-            )
-            scatter_sum = paddle.scatter_add(
-                paddle.zeros([num_nodes] + list(edge_attr.shape[1:]),
-                             dtype=edge_attr.dtype),
-                col,
-                edge_attr,
-                overwrite=False,
-            )
-            return scatter_sum / (
-                counts.unsqueeze(-1).astype(edge_attr.dtype) + 1e-9)
-        else:
-            raise ValueError(f"Unsupported fill_value '{fill_value}'")
+        return scatter(edge_attr, col, 0, num_nodes, fill_value)
 
     raise AttributeError("No valid 'fill_value' provided")
