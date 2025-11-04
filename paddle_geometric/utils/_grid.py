@@ -1,4 +1,5 @@
 from typing import Optional, Tuple
+
 import paddle
 from paddle import Tensor
 
@@ -36,22 +37,17 @@ def grid_index(
 ) -> Tensor:
 
     w = width
-    kernel = paddle.to_tensor(
-        [-w - 1, -1, w - 1, -w, 0, w, -w + 1, 1, w + 1],
-        place=device,
-    )
-
-    row = paddle.arange(height * width, dtype="int64")
-    row = row.reshape([-1, 1]).tile([1, kernel.shape[0]])
-    col = row + kernel.reshape([1, -1])
-    row, col = row.reshape([height, -1]), col.reshape([height, -1])
-    index = paddle.arange(3, row.shape[1] - 3, dtype="int64")
-    row, col = row[:, index].reshape([-1]), col[:, index].reshape([-1])
-
+    kernel = paddle.to_tensor([-w - 1, -1, w - 1, -w, 0, w, -w + 1, 1, w + 1],
+                              place=device)
+    row = paddle.arange(dtype="int64", end=height * width)
+    row = row.view(-1, 1).tile(repeat_times=[1, kernel.shape[0]])
+    col = row + kernel.view(1, -1)
+    row, col = row.view(height, -1), col.view(height, -1)
+    index = paddle.arange(start=3, end=row.shape[1] - 3, dtype="int64")
+    row, col = row[:, index].view(-1), col[:, index].view(-1)
     mask = (col >= 0) & (col < height * width)
     row, col = row[mask], col[mask]
-
-    edge_index = paddle.stack([row, col], axis=0)
+    edge_index = paddle.stack(x=[row, col], axis=0)
     edge_index = coalesce(edge_index, num_nodes=height * width)
     return edge_index
 
@@ -63,11 +59,9 @@ def grid_pos(
     device: Optional[str] = None,
 ) -> Tensor:
 
-    dtype = paddle.float32 if dtype is None else dtype
-    x = paddle.arange(width, dtype=dtype)
-    y = (height - 1) - paddle.arange(height, dtype=dtype)
-
-    x = x.tile([height])
-    y = y.unsqueeze(-1).tile([1, width]).reshape([-1])
-
-    return paddle.stack([x, y], axis=-1)
+    dtype = "float32" if dtype is None else dtype
+    x = paddle.arange(dtype=dtype, end=width, device=device)
+    y = height - 1 - paddle.arange(dtype=dtype, end=height, device=device)
+    x = x.tile(repeat_times=height)
+    y = y.unsqueeze(axis=-1).tile(repeat_times=[1, width]).view(-1)
+    return paddle.stack(x=[x, y], axis=-1)
