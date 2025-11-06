@@ -64,28 +64,24 @@ def scatter(
     # For "any" reduction, we use regular `put_along_axis_`:
     if reduce == 'any':
         index = broadcast(index, src, dim)
-        return src.new_zeros(size).put_along_axis_(axis=dim, indices=index,
-                                                   values=src, broadcast=False)
+        return src.new_zeros(size).scatter_(dim=dim, index=index, src=src)
 
     # For "sum" and "mean" reduction, we make use of `put_along_axis_`:
     if reduce == 'sum' or reduce == 'add':
         index = broadcast(index, src, dim)
-        return src.new_zeros(size).put_along_axis_(axis=dim, indices=index,
-                                                   values=src, reduce="add")
+        return src.new_zeros(size).scatter_add_(dim=dim, index=index, src=src)
 
     if reduce == 'mean':
         count = paddle.zeros(dim_size, device=src.place)
-        count.put_along_axis_(
-            axis=0,
-            indices=index,
-            values=paddle.ones(src.shape[dim], device=src.place),
-            reduce="add",
+        count.scatter_add_(
+            dim=0,
+            index=index,
+            src=paddle.ones(src.shape[dim], device=src.place),
         )
         count = count.clip(min=1)
 
         index = broadcast(index, src, dim)
-        out = src.new_zeros(size).put_along_axis_(axis=dim, indices=index,
-                                                  values=src, reduce="add")
+        out = src.new_zeros(size).scatter_add_(dim=dim, index=index, src=src)
 
         return out / broadcast(count, out, dim)
 

@@ -29,4 +29,4 @@ def degree(index: Tensor, num_nodes: Optional[int] = None,
     out = paddle.zeros((N, ),
                        dtype=dtype if dtype is not None else index.dtype)
     one = paddle.ones((index.shape[0], ), dtype=out.dtype)
-    return out.put_along_axis_(indices=index, values=one, axis=0, reduce='add')
+    return out.scatter_add_(index=index, src=one, dim=0)

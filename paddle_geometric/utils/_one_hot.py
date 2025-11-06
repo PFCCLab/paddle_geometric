@@ -31,5 +31,4 @@ def one_hot(
     if num_classes is None:
         num_classes = int(index._max()) + 1
     out = paddle.zeros(shape=(index.shape[0], num_classes), dtype=dtype)
-    return out.put_along_axis_(axis=1, indices=index.unsqueeze(axis=1),
-                               values=1, broadcast=False)
+    return out.scatter_(dim=1, index=index.unsqueeze(axis=1), src=1)
