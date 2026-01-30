@@ -16,7 +16,7 @@ def test_arma_conv():
     conv = ARMAConv(16, 32, num_stacks=8, num_layers=4)
     assert str(conv) == 'ARMAConv(16, 32, num_stacks=8, num_layers=4)'
     out = conv(x, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape) == (4, 32)
     with pytest.raises(RuntimeError):  # No 3D feature tensor support.
         assert paddle.allclose(conv(x, adj1.t()), out)
 
@@ -39,7 +39,7 @@ def test_lazy_arma_conv():
     conv = ARMAConv(-1, 32, num_stacks=8, num_layers=4)
     assert str(conv) == 'ARMAConv(-1, 32, num_stacks=8, num_layers=4)'
     out = conv(x, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape) == (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj2 = SparseTensor.from_edge_index(edge_index, sparse_sizes=(4, 4))
