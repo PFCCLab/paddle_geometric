@@ -4,7 +4,7 @@ from paddle_geometric.nn import GravNetConv
 from paddle_geometric.testing import is_full_test, withPackage
 
 
-@withPackage('torch_cluster')
+@withPackage('paddle_cluster')
 def test_gravnet_conv():
     x1 = paddle.randn(shape=[8, 16])
     x2 = paddle.randn(shape=[4, 16])

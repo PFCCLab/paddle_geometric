@@ -7,7 +7,7 @@ from paddle_geometric.typing import SparseTensor
 from paddle_geometric.utils import to_paddle_csc_tensor
 
 
-@withPackage('torch_sparse')  # TODO `PANConv` returns a `SparseTensor`.
+@withPackage('paddle_sparse')  # TODO `PANConv` returns a `SparseTensor`.
 def test_pan_conv():
     x = paddle.randn(shape=[4, 16])
     edge_index = paddle.to_tensor([[0, 0, 0, 1, 2, 3], [1, 2, 3, 0, 0, 0]])

@@ -1,4 +1,8 @@
 import pytest
+
+pytest.skip("CuGraph conv tests are not required for Paddle port.",
+            allow_module_level=True)
+
 import paddle
 
 from paddle_geometric import EdgeIndex

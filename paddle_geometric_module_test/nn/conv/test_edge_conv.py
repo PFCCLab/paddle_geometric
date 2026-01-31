@@ -62,7 +62,7 @@ def test_edge_conv_conv():
             assert paddle.allclose(jit((x1, x2), adj2.t()), out, atol=1e-6)
 
 
-@withPackage('torch_cluster')
+@withPackage('paddle_cluster')
 def test_dynamic_edge_conv():
     x1 = paddle.randn(shape=[8, 16])
     x2 = paddle.randn(shape=[4, 16])

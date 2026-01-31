@@ -4,7 +4,7 @@ from paddle_geometric.nn import XConv
 from paddle_geometric.testing import is_full_test, withPackage
 
 
-@withPackage('torch_cluster')
+@withPackage('paddle_cluster')
 def test_x_conv():
     x = paddle.randn(shape=[8, 16])
     pos = paddle.rand([8, 3])
