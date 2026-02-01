@@ -47,10 +47,10 @@ def gcn_norm(  # noqa: F811
             adj_t = paddle_sparse.fill_diag(adj_t, fill_value)
 
         deg = paddle_sparse.sum(adj_t, dim=1)
-        deg_inv_sqrt = deg.pow_(-0.5)
-        deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0.)
-        adj_t = paddle_sparse.mul(adj_t, deg_inv_sqrt.view(-1, 1))
-        adj_t = paddle_sparse.mul(adj_t, deg_inv_sqrt.view(1, -1))
+        deg_inv_sqrt = deg.pow(-0.5)
+        deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), 0., deg_inv_sqrt)
+        adj_t = paddle_sparse.mul(adj_t, deg_inv_sqrt.reshape([-1, 1]))
+        adj_t = paddle_sparse.mul(adj_t, deg_inv_sqrt.reshape([1, -1]))
 
         return adj_t
 
@@ -65,8 +65,8 @@ def gcn_norm(  # noqa: F811
         col, row = edge_index[0], edge_index[1]
 
         deg = scatter(value, col, 0, dim_size=num_nodes, reduce='sum')
-        deg_inv_sqrt = deg.pow_(-0.5)
-        deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0)
+        deg_inv_sqrt = deg.pow(-0.5)
+        deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), 0., deg_inv_sqrt)
         value = deg_inv_sqrt[row] * value * deg_inv_sqrt[col]
 
         return set_sparse_value(adj_t, value), None
@@ -84,10 +84,9 @@ def gcn_norm(  # noqa: F811
     row, col = edge_index[0], edge_index[1]
     idx = col if flow == 'source_to_target' else row
     deg = scatter(edge_weight, idx, dim=0, dim_size=num_nodes, reduce='sum')
-    deg_inv_sqrt = deg.pow_(-0.5)
-    deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0)
-    edge_weight = deg_inv_sqrt[row] * edge_weight * deg_inv_sqrt[col]
-
+            deg_inv_sqrt = deg.pow(-0.5)
+            deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), 0., deg_inv_sqrt)
+            edge_weight = deg_inv_sqrt[row] * edge_weight * deg_inv_sqrt[col]
     return edge_index, edge_weight
 
 

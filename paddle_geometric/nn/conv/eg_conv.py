@@ -228,7 +228,7 @@ class EGConv(MessagePassing):
             else:
                 adj_t_2 = adj_t.clone()
                 if hasattr(adj_t_2, 'values'):
-                    adj_t_2.values().fill_(1.0)
+                    adj_t_2.set_value(1.0)
 
         outs = []
         for aggr in self.aggregators:

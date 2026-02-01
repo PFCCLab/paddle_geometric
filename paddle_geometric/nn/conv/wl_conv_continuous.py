@@ -73,7 +73,7 @@ class WLConvContinuous(MessagePassing):
 
         deg = scatter(edge_weight, dst_index, 0, out.shape[0], reduce='sum')
         deg_inv = 1. / deg
-        deg_inv.masked_fill_(deg_inv == float('inf'), 0)
+        deg_inv = paddle.where(deg_inv == float('inf'), 0., deg_inv)
         out = deg_inv.reshape([-1, 1]) * out
 
         x_dst = x[1]
