@@ -15,7 +15,7 @@ class HEATConv(MessagePassing):
     `"Heterogeneous Edge-Enhanced Graph Attention Network For Multi-Agent
     Trajectory Prediction" <https://arxiv.org/abs/2106.07161>`_ paper.
 
-    :class:`HEATConv` enhances :class:`~torch_geometric.nn.conv.GATConv` by:
+    :class:`HEATConv` enhances :class:`~paddle_geometric.nn.conv.GATConv` by:
 
     1. type-specific transformations of nodes of different types
     2. edge type and edge feature incorporation, in which edges are assumed to
@@ -46,7 +46,7 @@ class HEATConv(MessagePassing):
         bias (bool, optional): If set to :obj:`False`, the layer will not learn
             an additive bias. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**

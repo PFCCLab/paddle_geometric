@@ -32,7 +32,7 @@ class PANConv(MessagePassing):
         out_channels (int): Size of each output sample.
         filter_size (int): The filter size :math:`L`.
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**

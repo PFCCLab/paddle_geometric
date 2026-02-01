@@ -76,12 +76,6 @@ class SuperGATConv(MessagePassing):
             }{ \sqrt{d} }
         \right)
 
-    .. note::
-
-        For an example of using SuperGAT, see `examples/super_gat.py
-        <https://github.com/pyg-team/pytorch_geometric/blob/master/examples/
-        super_gat.py>`_.
-
     Args:
         in_channels (int): Size of each input sample, or :obj:`-1` to derive
             the size from the first input(s) to the forward method.
@@ -111,7 +105,7 @@ class SuperGATConv(MessagePassing):
             If not given, will be automatically computed with the input graph
             when negative sampling is performed. (default: :obj:`False`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**

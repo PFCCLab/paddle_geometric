@@ -33,7 +33,7 @@ class TAGConv(MessagePassing):
         normalize (bool, optional): Whether to apply symmetric normalization.
             (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**

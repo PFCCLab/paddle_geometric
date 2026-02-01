@@ -129,7 +129,7 @@ class MessagePassing(paddle.nn.Layer):
             to use, *e.g.*, :obj:`"sum"` :obj:`"mean"`, :obj:`"min"`,
             :obj:`"max"` or :obj:`"mul"`.
             In addition, can be any
-            :class:`~torch_geometric.nn.aggr.Aggregation` module (or any string
+            :class:`~paddle_geometric.nn.aggr.Aggregation` module (or any string
             that automatically resolves to it).
             If given as a list, will make use of multiple aggregations in which
             different outputs will get concatenated in the last dimension.
@@ -153,10 +153,10 @@ class MessagePassing(paddle.nn.Layer):
             during GNN aggregation.
             This method can accelerate GNN execution on CPU-based platforms
             (*e.g.*, 2-3x speedup on the
-            :class:`~torch_geometric.datasets.Reddit` dataset) for common GNN
-            models such as :class:`~torch_geometric.nn.models.GCN`,
-            :class:`~torch_geometric.nn.models.GraphSAGE`,
-            :class:`~torch_geometric.nn.models.GIN`, etc.
+            :class:`~paddle_geometric.datasets.Reddit` dataset) for common GNN
+            models such as :class:`~paddle_geometric.nn.models.GCN`,
+            :class:`~paddle_geometric.nn.models.GraphSAGE`,
+            :class:`~paddle_geometric.nn.models.GIN`, etc.
             However, this method is not applicable to all GNN operators
             available, in particular for operators in which message computation
             can not easily be decomposed, *e.g.* in attention-based GNNs.
@@ -644,7 +644,7 @@ class MessagePassing(paddle.nn.Layer):
         argument which was initially passed to :meth:`propagate`.
 
         By default, this function will delegate its call to the underlying
-        :class:`~torch_geometric.nn.aggr.Aggregation` module to reduce messages
+        :class:`~paddle_geometric.nn.aggr.Aggregation` module to reduce messages
         as specified in :meth:`__init__` by the :obj:`aggr` argument.
         """
         return self.aggr_module(inputs, index, ptr=ptr, dim_size=dim_size,

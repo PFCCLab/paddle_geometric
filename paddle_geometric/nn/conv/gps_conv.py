@@ -30,13 +30,6 @@ class GPSConv(paddle.nn.Layer):
     2. A local message passing layer (MPNN) that operates on the input graph.
     3. A global attention layer that operates on the entire graph.
 
-    .. note::
-
-        For an example of using :class:`GPSConv`, see
-        `examples/graph_gps.py
-        <https://github.com/pyg-team/pytorch_geometric/blob/master/examples/
-        graph_gps.py>`_.
-
     Args:
         channels (int): Size of each input sample.
         conv (MessagePassing, optional): The local message passing layer.

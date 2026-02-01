@@ -92,7 +92,7 @@ class TransformerConv(MessagePassing):
             not add the transformed root node features to the output and the
             option  :attr:`beta` is set to :obj:`False`. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
     """
     _alpha: OptTensor
 

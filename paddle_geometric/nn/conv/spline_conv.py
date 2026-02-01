@@ -12,8 +12,10 @@ from paddle_geometric.nn.inits import uniform, zeros
 from paddle_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 from paddle_geometric.utils.repeat import repeat
 
-
-spline_basis = spline_weighting = None
+if paddle_geometric.typing.WITH_PADDLE_SPLINE_CONV:
+    from paddle_spline_conv import spline_basis, spline_weighting
+else:
+    spline_basis = spline_weighting = None
 
 
 class SplineConv(MessagePassing):

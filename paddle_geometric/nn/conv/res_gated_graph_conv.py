@@ -43,7 +43,7 @@ class ResGatedGraphConv(MessagePassing):
             not add transformed root node features to the output.
             (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **inputs:**

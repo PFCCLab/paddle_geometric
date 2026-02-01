@@ -42,7 +42,7 @@ class GINConv(MessagePassing):
         train_eps (bool, optional): If set to :obj:`True`, :math:`\epsilon`
             will be a trainable parameter. (default: :obj:`False`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**
@@ -128,7 +128,7 @@ class GINEConv(MessagePassing):
             match. Other-wise, edge features are linearly transformed to match
             node feature dimensionality. (default: :obj:`None`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**

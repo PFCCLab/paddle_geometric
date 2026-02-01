@@ -35,11 +35,6 @@ class EGConv(MessagePassing):
     :class:`~paddle_geometric.nn.conv.SAGEConv` or
     :class:`~paddle_geometric.nn.conv.GINConv`.
 
-    .. note::
-        For an example of using :obj:`EGConv`, see `examples/egc.py
-        <https://github.com/pyg-team/pytorch_geometric/blob/master/
-        examples/egc.py>`_.
-
     Args:
         in_channels (int): Size of each input sample, or :obj:`-1` to derive
             the size from the first input(s) to the forward method.

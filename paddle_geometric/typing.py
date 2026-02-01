@@ -227,6 +227,23 @@ except Exception as e:
 
 
 try:
+    import paddle_spline_conv  # noqa
+    WITH_PADDLE_SPLINE_CONV = True
+except Exception as e:
+    if not isinstance(e, ImportError):  # pragma: no cover
+        warnings.warn(f"An issue occurred while importing 'paddle-spline-conv'. "
+                      f"Disabling its usage. Stacktrace: {e}")
+    paddle_spline_conv = object
+    WITH_PADDLE_SPLINE_CONV = False
+
+    def spline_basis(*args, **kwargs):  # type: ignore
+        raise ImportError("'spline_basis' requires 'paddle-spline-conv'")
+
+    def spline_weighting(*args, **kwargs):  # type: ignore
+        raise ImportError("'spline_weighting' requires 'paddle-spline-conv'")
+
+
+try:
     raise ImportError
     # import paddle_frame  # noqa
     # WITH_PADDLE_FRAME = True

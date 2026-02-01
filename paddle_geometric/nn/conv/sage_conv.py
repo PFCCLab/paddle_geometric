@@ -15,6 +15,10 @@ class SAGEConv(MessagePassing):
     r"""The GraphSAGE operator from the `"Inductive Representation Learning on
     Large Graphs" <https://arxiv.org/abs/1706.02216>`_ paper.
 
+    .. math::
+        \mathbf{x}^{\prime}_i = \mathbf{W}_1 \mathbf{x}_i + \mathbf{W}_2 \cdot
+        \mathrm{mean}_{j \in \mathcal{N(i)}} \mathbf{x}_j
+
     If :obj:`project = True`, then :math:`\mathbf{x}_j` will first get
     projected via
 
@@ -31,7 +35,7 @@ class SAGEConv(MessagePassing):
             dimensionalities.
         out_channels (int): Size of each output sample.
         aggr (str or Aggregation, optional): The aggregation scheme to use.
-            Any aggregation of :obj:`torch_geometric.nn.aggr` can be used,
+            Any aggregation of :obj:`paddle_geometric.nn.aggr` can be used,
             *e.g.*, :obj:`"mean"`, :obj:`"max"`, or :obj:`"lstm"`.
             (default: :obj:`"mean"`)
         normalize (bool, optional): If set to :obj:`True`, output features
@@ -49,7 +53,7 @@ class SAGEConv(MessagePassing):
         bias (bool, optional): If set to :obj:`False`, the layer will not learn
             an additive bias. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **inputs:**
@@ -124,7 +128,7 @@ class SAGEConv(MessagePassing):
         if isinstance(x, Tensor):
             x: OptPairTensor = (x, x)
 
-        if self.project:
+        if self.project and hasattr(self, 'lin'):
             x = (F.relu(self.lin(x[0])), x[1])
 
         # propagate_type: (x: OptPairTensor)
