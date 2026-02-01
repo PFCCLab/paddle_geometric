@@ -10,9 +10,13 @@ from paddle import Tensor
 from tqdm import tqdm
 import pickle  # Used for serializing and deserializing complex objects
 
+from paddle_geometric import EdgeIndex, Index
+from paddle_geometric.edge_index import SortOrder
+from paddle_geometric.utils.mixin import CastMixin
+
 
 @dataclass
-class TensorInfo:
+class TensorInfo(CastMixin):
     """Describes the type information of a tensor, including data type, size,
     whether it's an index or an edge index."""
     dtype: paddle.dtype
@@ -44,6 +48,14 @@ def maybe_cast_to_tensor_info(value: Any) -> Union[Any, TensorInfo]:
     return TensorInfo(**value)
 
 
+SORT_ORDER_TO_INDEX: Dict[Optional[SortOrder], int] = {
+    None: -1,
+    SortOrder.ROW: 0,
+    SortOrder.COL: 1,
+}
+INDEX_TO_SORT_ORDER = {v: k for k, v in SORT_ORDER_TO_INDEX.items()}
+
+
 Schema = Union[Any, Dict[str, Any], Tuple[Any], List[Any]]
 
 
@@ -53,18 +65,70 @@ class Database(ABC):
     A database acts as an index-based key-value store for tensors and other custom data.
     """
     def __init__(self, schema: Schema = object) -> None:
-        schema_dict = self._to_dict(schema)
-        self.schema: Dict[Union[str, int], Any] = schema_dict
+        schema_dict = self._to_dict(maybe_cast_to_tensor_info(schema))
+        self.schema: Dict[Union[str, int], Any] = {
+            key: maybe_cast_to_tensor_info(value)
+            for key, value in schema_dict.items()
+        }
+
+    def connect(self) -> None:
+        r"""Connects to the database.
+        Databases will automatically connect on instantiation.
+        """
+        pass
+
+    def close(self) -> None:
+        r"""Closes the connection to the database."""
+        pass
 
     @abstractmethod
     def insert(self, index: int, data: Any) -> None:
         """Insert data at a specified index."""
         raise NotImplementedError
 
-    def multi_insert(self, indices: Union[Sequence[int], slice], data_list: Sequence[Any]) -> None:
-        """Insert multiple data entries at specified indices."""
+    def multi_insert(
+        self,
+        indices: Union[Sequence[int], Tensor, slice, range],
+        data_list: Sequence[Any],
+        batch_size: Optional[int] = None,
+        log: bool = False,
+    ) -> None:
+        r"""Inserts a chunk of data at the specified indices.
+
+        Args:
+            indices (List[int] or Tensor or range): The indices at which to insert.
+            data_list (List[Any]): The objects to insert.
+            batch_size (int, optional): If specified, will insert the data to
+                the database in batches of size :obj:`batch_size`.
+                (default: :obj:`None`)
+            log (bool, optional): If set to :obj:`True`, will log progress to
+                the console. (default: :obj:`False`)
+        """
         if isinstance(indices, slice):
             indices = self.slice_to_range(indices)
+
+        length = min(len(indices), len(data_list))
+        batch_size = length if batch_size is None else batch_size
+
+        if log and length > batch_size:
+            desc = f'Insert {length} entries'
+            offsets = tqdm(range(0, length, batch_size), desc=desc)
+        else:
+            offsets = range(0, length, batch_size)
+
+        for start in offsets:
+            self._multi_insert(
+                indices[start:start + batch_size],
+                data_list[start:start + batch_size],
+            )
+
+    def _multi_insert(
+        self,
+        indices: Union[Sequence[int], Tensor, range],
+        data_list: Sequence[Any],
+    ) -> None:
+        if isinstance(indices, Tensor):
+            indices = indices.tolist()
         for index, data in zip(indices, data_list):
             self.insert(index, data)
 
@@ -73,10 +137,34 @@ class Database(ABC):
         """Retrieve data from a specified index."""
         raise NotImplementedError
 
-    def multi_get(self, indices: Union[Sequence[int], slice]) -> List[Any]:
-        """Retrieve data from multiple indices."""
+    def multi_get(
+        self,
+        indices: Union[Sequence[int], Tensor, slice, range],
+        batch_size: Optional[int] = None,
+    ) -> List[Any]:
+        r"""Gets a chunk of data from the specified indices.
+
+        Args:
+            indices (List[int] or Tensor or range): The indices to query.
+            batch_size (int, optional): If specified, will request the data
+                from the database in batches of size :obj:`batch_size`.
+                (default: :obj:`None`)
+        """
         if isinstance(indices, slice):
             indices = self.slice_to_range(indices)
+
+        length = len(indices)
+        batch_size = length if batch_size is None else batch_size
+
+        data_list: List[Any] = []
+        for start in range(0, length, batch_size):
+            chunk_indices = indices[start:start + batch_size]
+            data_list.extend(self._multi_get(chunk_indices))
+        return data_list
+
+    def _multi_get(self, indices: Union[Sequence[int], Tensor]) -> List[Any]:
+        if isinstance(indices, Tensor):
+            indices = indices.tolist()
         return [self.get(index) for index in indices]
 
     @staticmethod
@@ -90,23 +178,29 @@ class Database(ABC):
 
     def slice_to_range(self, indices: slice) -> range:
         """Convert a slice object into a range object."""
-        start = indices.start or 0
-        stop = indices.stop or len(self)
-        step = indices.step or 1
+        start = 0 if indices.start is None else indices.start
+        stop = len(self) if indices.stop is None else indices.stop
+        step = 1 if indices.step is None else indices.step
         return range(start, stop, step)
 
     def __len__(self) -> int:
         """Return the number of entries in the database."""
         raise NotImplementedError
 
-    def __getitem__(self, key: Union[int, Sequence[int], slice]) -> Union[Any, List[Any]]:
-        """Retrieve data using index or slice."""
+    def __getitem__(
+        self,
+        key: Union[int, Sequence[int], Tensor, slice, range],
+    ) -> Union[Any, List[Any]]:
         if isinstance(key, int):
             return self.get(key)
-        return self.multi_get(key)
+        else:
+            return self.multi_get(key)
 
-    def __setitem__(self, key: Union[int, Sequence[int], slice], value: Union[Any, Sequence[Any]]) -> None:
-        """Insert data using index or slice."""
+    def __setitem__(
+        self,
+        key: Union[int, Sequence[int], Tensor, slice, range],
+        value: Union[Any, Sequence[Any]],
+    ) -> None:
         if isinstance(key, int):
             self.insert(key, value)
         else:
@@ -114,9 +208,9 @@ class Database(ABC):
 
     def __repr__(self) -> str:
         try:
-            return f"{self.__class__.__name__}({len(self)})"
+            return f'{self.__class__.__name__}({len(self)})'
         except NotImplementedError:
-            return f"{self.__class__.__name__}()"
+            return f'{self.__class__.__name__}()'
 
 
 class SQLiteDatabase(Database):
@@ -127,17 +221,24 @@ class SQLiteDatabase(Database):
     def __init__(self, path: str, name: str, schema: Schema = object) -> None:
         super().__init__(schema)
         import sqlite3
+        warnings.filterwarnings('ignore', '.*given buffer is not writable.*')
+
         self.path = path
         self.name = name
         self._connection: Optional[sqlite3.Connection] = None
         self._cursor: Optional[sqlite3.Cursor] = None
         self.connect()
 
-        # Create table if it does not exist
-        schema_str = ", ".join(
-            f"{key} BLOB NOT NULL" for key in self.schema.keys()
-        )
-        query = f"CREATE TABLE IF NOT EXISTS {self.name} (id INTEGER PRIMARY KEY, {schema_str})"
+        # Create the table (if it does not exist) by mapping the Python schema
+        # to the corresponding SQL schema:
+        sql_schema = ',\n'.join([
+            f'  {col_name} {self._to_sql_type(type_info)}' for col_name,
+            type_info in zip(self._col_names, self.schema.values())
+        ])
+        query = (f'CREATE TABLE IF NOT EXISTS {self.name} (\n'
+                 f'  id INTEGER PRIMARY KEY,\n'
+                 f'{sql_schema}\n'
+                 f')')
         self.cursor.execute(query)
 
     def connect(self) -> None:
@@ -170,32 +271,244 @@ class SQLiteDatabase(Database):
 
     def insert(self, index: int, data: Any) -> None:
         """Insert a single data entry."""
-        query = f"INSERT INTO {self.name} (id, {', '.join(self.schema.keys())}) VALUES (?, {', '.join(['?'] * len(self.schema))})"
+        query = (f'INSERT INTO {self.name} '
+                 f'(id, {self._joined_col_names}) '
+                 f'VALUES (?, {self._dummies})')
         self.cursor.execute(query, (index, *self._serialize(data)))
+        self.connection.commit()
+
+    def _multi_insert(
+        self,
+        indices: Union[Sequence[int], Tensor, range],
+        data_list: Sequence[Any],
+    ) -> None:
+        if isinstance(indices, Tensor):
+            indices = indices.tolist()
+
+        data_list = [(index, *self._serialize(data))
+                     for index, data in zip(indices, data_list)]
+
+        query = (f'INSERT INTO {self.name} '
+                 f'(id, {self._joined_col_names}) '
+                 f'VALUES (?, {self._dummies})')
+        self.cursor.executemany(query, data_list)
         self.connection.commit()
 
     def get(self, index: int) -> Any:
         """Retrieve a single data entry."""
-        query = f"SELECT {', '.join(self.schema.keys())} FROM {self.name} WHERE id = ?"
-        self.cursor.execute(query, (index,))
-        row = self.cursor.fetchone()
-        if row is None:
-            raise KeyError(f"Index {index} not found in database")
-        return self._deserialize(row)
+        query = (f'SELECT {self._joined_col_names} FROM {self.name} '
+                 f'WHERE id = ?')
+        self.cursor.execute(query, (index, ))
+        return self._deserialize(self.cursor.fetchone())
+
+    def multi_get(
+        self,
+        indices: Union[Sequence[int], Tensor, slice, range],
+        batch_size: Optional[int] = None,
+    ) -> List[Any]:
+
+        if isinstance(indices, slice):
+            indices = self.slice_to_range(indices)
+        elif isinstance(indices, Tensor):
+            indices = indices.tolist()
+
+        # We create a temporary ID table to then perform an INNER JOIN.
+        # This avoids having a long IN clause and guarantees sorted outputs:
+        join_table_name = f'{self.name}__join'
+        # Temporary tables do not lock the database.
+        query = (f'CREATE TEMP TABLE {join_table_name} (\n'
+                 f'  id INTEGER,\n'
+                 f'  row_id INTEGER\n'
+                 f')')
+        self.cursor.execute(query)
+
+        query = f'INSERT INTO {join_table_name} (id, row_id) VALUES (?, ?)'
+        self.cursor.executemany(query, zip(indices, range(len(indices))))
+        self.connection.commit()
+
+        query = f'SELECT * FROM {join_table_name}'
+        self.cursor.execute(query)
+
+        query = (f'SELECT {self._joined_col_names} '
+                 f'FROM {self.name} INNER JOIN {join_table_name} '
+                 f'ON {self.name}.id = {join_table_name}.id '
+                 f'ORDER BY {join_table_name}.row_id')
+        self.cursor.execute(query)
+
+        if batch_size is None:
+            data_list = self.cursor.fetchall()
+        else:
+            data_list = []
+            while True:
+                chunk_list = self.cursor.fetchmany(size=batch_size)
+                if len(chunk_list) == 0:
+                    break
+                data_list.extend(chunk_list)
+
+        query = f'DROP TABLE {join_table_name}'
+        self.cursor.execute(query)
+
+        return [self._deserialize(data) for data in data_list]
 
     def __len__(self) -> int:
         """Get the total number of entries in the database."""
-        query = f"SELECT COUNT(*) FROM {self.name}"
+        query = f'SELECT COUNT(*) FROM {self.name}'
         self.cursor.execute(query)
         return self.cursor.fetchone()[0]
 
-    def _serialize(self, data: Any) -> List[bytes]:
-        """Serialize data into a byte stream."""
-        return [pickle.dumps(data.get(key)) for key in self.schema.keys()]
+    # Helper functions ########################################################
 
-    def _deserialize(self, row: Tuple[bytes]) -> Dict[str, Any]:
-        """Deserialize a byte stream into original data."""
-        return {key: pickle.loads(value) for key, value in zip(self.schema.keys(), row)}
+    @cached_property
+    def _col_names(self) -> List[str]:
+        return [f'COL_{key}' for key in self.schema.keys()]
+
+    @cached_property
+    def _joined_col_names(self) -> str:
+        return ', '.join(self._col_names)
+
+    @cached_property
+    def _dummies(self) -> str:
+        return ', '.join(['?'] * len(self.schema.keys()))
+
+    def _to_sql_type(self, type_info: Any) -> str:
+        if type_info == int:
+            return 'INTEGER NOT NULL'
+        if type_info == float:
+            return 'FLOAT'
+        if type_info == str:
+            return 'TEXT NOT NULL'
+        else:
+            return 'BLOB NOT NULL'
+
+    def _serialize(self, row: Any) -> List[Any]:
+        """Serialize data according to schema."""
+        # Serializes the given input data according to `schema`:
+        # * {int, float, str}: Use as they are.
+        # * paddle.Tensor: Convert into the raw byte string
+        # * object: Dump via pickle
+        # If we find a `paddle.Tensor` that is not registered as such in
+        # `schema`, we modify the schema in-place for improved efficiency.
+        out: List[Any] = []
+        row_dict = self._to_dict(row)
+        for key, schema in self.schema.items():
+            col = row_dict[key]
+
+            if isinstance(col, Tensor) and not isinstance(schema, TensorInfo):
+                self.schema[key] = schema = TensorInfo(
+                    col.dtype,
+                    is_index=isinstance(col, Index),
+                    is_edge_index=isinstance(col, EdgeIndex),
+                )
+
+            if isinstance(schema, TensorInfo) and schema.is_index:
+                assert isinstance(col, Index)
+
+                meta = paddle.to_tensor([
+                    col.dim_size if col.dim_size is not None else -1,
+                    1 if col.is_sorted else 0,
+                ], dtype=paddle.int64)
+
+                out.append(meta.numpy().tobytes() +
+                           col.as_tensor().numpy().tobytes())
+
+            elif isinstance(schema, TensorInfo) and schema.is_edge_index:
+                assert isinstance(col, EdgeIndex)
+
+                num_rows, num_cols = col.sparse_size()
+                meta = paddle.to_tensor([
+                    num_rows if num_rows is not None else -1,
+                    num_cols if num_cols is not None else -1,
+                    SORT_ORDER_TO_INDEX[col._sort_order],
+                    1 if col.is_undirected else 0,
+                ], dtype=paddle.int64)
+
+                out.append(meta.numpy().tobytes() +
+                           col.as_tensor().numpy().tobytes())
+
+            elif isinstance(schema, TensorInfo):
+                assert isinstance(col, Tensor)
+                out.append(col.numpy().tobytes())
+
+            elif schema in {int, float, str}:
+                out.append(col)
+
+            else:
+                buffer = io.BytesIO()
+                pickle.dump(col, buffer)
+                out.append(buffer.getvalue())
+
+        return out
+
+    def _deserialize(self, row: Tuple[Any]) -> Any:
+        # Deserializes the DB data according to `schema`:
+        # * {int, float, str}: Use as they are.
+        # * paddle.Tensor: Load raw byte string with `dtype` and `size`
+        #   information from `schema`
+        # * object: Load via pickle
+        out_dict = {}
+        for i, (key, schema) in enumerate(self.schema.items()):
+            value = row[i]
+
+            if isinstance(schema, TensorInfo) and schema.is_index:
+                meta = paddle.to_tensor(value[:16], dtype=paddle.int64)
+                dim_size = int(meta[0].item()) if meta[0].item() >= 0 else None
+                is_sorted = meta[1].item() > 0
+
+                if len(value) > 16:
+                    tensor = paddle.frombuffer(value[16:], dtype=schema.dtype)
+                else:
+                    tensor = paddle.empty(0, dtype=schema.dtype)
+
+                out_dict[key] = Index(
+                    tensor.reshape(*schema.size),
+                    dim_size=dim_size,
+                    is_sorted=is_sorted,
+                )
+
+            elif isinstance(schema, TensorInfo) and schema.is_edge_index:
+                meta = paddle.to_tensor(value[:32], dtype=paddle.int64)
+                num_rows = int(meta[0].item()) if meta[0].item() >= 0 else None
+                num_cols = int(meta[1].item()) if meta[1].item() >= 0 else None
+                sort_order = INDEX_TO_SORT_ORDER[int(meta[2].item())]
+                is_undirected = meta[3].item() > 0
+
+                if len(value) > 32:
+                    tensor = paddle.frombuffer(value[32:], dtype=schema.dtype)
+                else:
+                    tensor = paddle.empty(0, dtype=schema.dtype)
+
+                out_dict[key] = EdgeIndex(
+                    tensor.reshape(*schema.size),
+                    sparse_size=(num_rows, num_cols),
+                    sort_order=sort_order,
+                    is_undirected=is_undirected,
+                )
+
+            elif isinstance(schema, TensorInfo):
+                if len(value) > 0:
+                    tensor = paddle.frombuffer(value, dtype=schema.dtype)
+                else:
+                    tensor = paddle.empty(0, dtype=schema.dtype)
+                out_dict[key] = tensor.reshape(*schema.size)
+
+            elif schema == float:
+                out_dict[key] = value if value is not None else float('NaN')
+
+            elif schema in {int, str}:
+                out_dict[key] = value
+
+            else:
+                out_dict[key] = pickle.loads(value)
+
+        # In case `0` exists as integer in the schema, this means that the
+        # schema was passed as either a single entry or a tuple:
+        if 0 in self.schema:
+            if len(self.schema) == 1:
+                return out_dict[0]
+            else:
+                return tuple(out_dict.values())
+        else:  # Otherwise, return the dictionary as it is:
+            return out_dict
 
 
 class RocksDatabase(Database):
@@ -205,16 +518,22 @@ class RocksDatabase(Database):
     """
     def __init__(self, path: str, schema: Schema = object) -> None:
         super().__init__(schema)
+
         import rocksdict
 
         self.path = path
+
         self._db: Optional[rocksdict.Rdict] = None
+
         self.connect()
 
     def connect(self) -> None:
         """Connect to the RocksDB database."""
         import rocksdict
-        self._db = rocksdict.Rdict(self.path, options=rocksdict.Options(raw_mode=True))
+        self._db = rocksdict.Rdict(
+            self.path,
+            options=rocksdict.Options(raw_mode=True),
+        )
 
     def close(self) -> None:
         """Close the database connection."""
@@ -232,7 +551,7 @@ class RocksDatabase(Database):
     @staticmethod
     def to_key(index: int) -> bytes:
         """Convert an integer index to bytes."""
-        return index.to_bytes(8, byteorder="big", signed=True)
+        return index.to_bytes(8, byteorder='big', signed=True)
 
     def insert(self, index: int, data: Any) -> None:
         """Insert a single data entry."""
@@ -242,10 +561,23 @@ class RocksDatabase(Database):
         """Retrieve a single data entry."""
         return self._deserialize(self.db[self.to_key(index)])
 
-    def _serialize(self, data: Any) -> bytes:
+    def _multi_get(self, indices: Union[Sequence[int], Tensor]) -> List[Any]:
+        if isinstance(indices, Tensor):
+            indices = indices.tolist()
+        data_list = self.db[[self.to_key(index) for index in indices]]
+        return [self._deserialize(data) for data in data_list]
+
+    def __len__(self) -> int:
+        """Get the total number of entries in the database."""
+        return len(self.db)
+
+    def _serialize(self, row: Any) -> bytes:
         """Serialize data into a byte stream."""
+        # Ensure that data is not a view of a larger tensor:
+        if isinstance(row, Tensor):
+            row = row.clone()
         buffer = io.BytesIO()
-        pickle.dump(data, buffer)
+        pickle.dump(row, buffer)
         return buffer.getvalue()
 
     def _deserialize(self, row: bytes) -> Any:

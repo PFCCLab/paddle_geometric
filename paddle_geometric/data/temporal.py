@@ -188,6 +188,19 @@ class TemporalData(BaseData):
         size = (int(self.src.max()), int(self.dst.max()))
         return size if dim is None else size[dim]
 
+    def __cat_dim__(self, key: str, value: Any, *args, **kwargs) -> Any:
+        r"""Returns the concatenation dimension for the given attribute."""
+        return 0
+
+    def __inc__(self, key: str, value: Any, *args, **kwargs) -> Any:
+        r"""Returns the increment value for the given attribute."""
+        if 'batch' in key and isinstance(value, paddle.Tensor):
+            return int(value.max()) + 1
+        elif key in ['src', 'dst']:
+            return self.num_nodes
+        else:
+            return 0
+
     def train_val_test_split(self, val_ratio: float = 0.15,
                              test_ratio: float = 0.15):
         """Splits the data into training, validation, and test sets based on
@@ -200,6 +213,30 @@ class TemporalData(BaseData):
         test_idx = int((self.t <= test_time).sum().item())
 
         return self[:val_idx], self[val_idx:test_idx], self[test_idx:]
+
+    def debug(self):
+        r"""Prints debug information about the data object."""
+        pass  # TODO
+
+    def coalesce(self):
+        r"""Coalesces the data object."""
+        raise NotImplementedError
+
+    def has_isolated_nodes(self) -> bool:
+        r"""Returns whether the graph has isolated nodes."""
+        raise NotImplementedError
+
+    def has_self_loops(self) -> bool:
+        r"""Returns whether the graph has self-loops."""
+        raise NotImplementedError
+
+    def is_undirected(self) -> bool:
+        r"""Returns whether the graph is undirected."""
+        raise NotImplementedError
+
+    def is_directed(self) -> bool:
+        r"""Returns whether the graph is directed."""
+        raise NotImplementedError
 
     def __repr__(self) -> str:
         cls = self.__class__.__name__

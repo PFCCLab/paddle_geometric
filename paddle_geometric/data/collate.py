@@ -28,6 +28,11 @@ from paddle_geometric.typing import (
 from paddle_geometric.utils import cumsum, is_paddle_sparse_tensor, is_sparse
 from paddle_geometric.utils.sparse import cat
 
+try:
+    from paddle.io import get_worker_info
+except ImportError:
+    get_worker_info = None
+
 T = TypeVar('T')
 SliceDictType = Dict[str, Union[Tensor, Dict[str, Tensor]]]
 IncDictType = Dict[str, Union[Tensor, Dict[str, Tensor]]]
@@ -59,7 +64,7 @@ def collate(
         for store in data.stores:
             key_to_stores[store._key].append(store)
 
-    device: Optional[paddle.CPUPlace] = None
+    device: Optional[paddle.Place] = None
     slice_dict: SliceDictType = {}
     inc_dict: IncDictType = {}
     for out_store in out.stores:  # type: ignore
@@ -83,8 +88,7 @@ def collate(
             value, slices, incs = _collate(attr, values, data_list, stores,
                                            increment)
 
-            if isinstance(value,
-                          Tensor) and paddle.device.get_device() != 'cpu':
+            if isinstance(value, Tensor):
                 device = value.place
 
             out_store[attr] = value
@@ -127,6 +131,8 @@ def _collate(
     elem = values[0]
 
     if isinstance(elem, Tensor) and not is_sparse(elem):
+        # Concatenate a list of `paddle.Tensor` along the `cat_dim`.
+        # NOTE: We need to take care of incrementing elements appropriately.
         key = str(key)
         cat_dim = data_list[0].__cat_dim__(key, elem, stores[0])
         if cat_dim is None or elem.ndim == 0:
@@ -137,10 +143,32 @@ def _collate(
         if increment:
             incs = get_incs(key, values, data_list, stores)
             if incs.ndim > 1 or int(incs[-1]) != 0:
-                values = [value + inc for value, inc in zip(values, incs)]
+                values = [
+                    value + inc.to(value.place)
+                    for value, inc in zip(values, incs)
+                ]
         else:
             incs = None
-        value = paddle.concat(values, axis=cat_dim or 0)
+
+        if getattr(elem, 'is_nested', False):
+            # Paddle does not have nested tensor support like PyTorch
+            # Return the values as-is to maintain compatibility
+            return values, slices, incs
+
+        out = None
+        if get_worker_info is not None and not isinstance(elem, (Index, EdgeIndex)):
+            # Write directly into shared memory to avoid an extra copy:
+            numel = sum(value.numel().item() for value in values)
+            storage = elem._to_shared(numel * elem.element_size(), place=elem.place)
+            shape = list(elem.shape)
+            if cat_dim is None or elem.ndim == 0:
+                shape = [len(values)] + shape
+            else:
+                shape[cat_dim] = int(slices[-1].item())
+            out = elem.new(storage).reshape_(*shape)
+
+        value = paddle.concat(values, axis=cat_dim or 0, out=out)
+
         if increment and isinstance(value, Index) and values[0].is_sorted:
             # Check whether the whole `Index` is sorted:
             if (value.diff() >= 0).all():
@@ -217,7 +245,7 @@ def _collate(
 
 def _batch_and_ptr(
     slices: Any,
-    device: Optional[paddle.CPUPlace] = None,
+    device: Optional[paddle.Place] = None,
 ) -> Tuple[Any, Any]:
     if isinstance(slices, Tensor) and slices.ndim == 1:
         repeats = slices[1:] - slices[:-1]
@@ -247,7 +275,7 @@ def _batch_and_ptr(
 
 def repeat_interleave(
     repeats: List[int],
-    device: Optional[paddle.CPUPlace] = None,
+    device: Optional[paddle.Place] = None,
 ) -> Tensor:
     outs = [paddle.full([n], i, device=device) for i, n in enumerate(repeats)]
     return paddle.concat(outs, axis=0)

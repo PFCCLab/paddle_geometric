@@ -542,13 +542,13 @@ class EdgeStorage(BaseStorage):
     We support multiple ways to store edge connectivity in a
     :class:`EdgeStorage` object:
 
-    * :obj:`edge_index`: A :class:`torch.LongTensor` holding edge indices in
+    * :obj:`edge_index`: A :class:`paddle.LongTensor` holding edge indices in
       COO format with shape :obj:`[2, num_edges]` (the default format)
 
-    * :obj:`adj`: A :class:`torch_sparse.SparseTensor` holding edge indices in
+    * :obj:`adj`: A :class:`paddle_sparse.SparseTensor` holding edge indices in
       a sparse format, supporting both COO and CSR format.
 
-    * :obj:`adj_t`: A **transposed** :class:`torch_sparse.SparseTensor` holding
+    * :obj:`adj_t`: A **transposed** :class:`paddle_sparse.SparseTensor` holding
       edge indices in a sparse format, supporting both COO and CSR format.
       This is the most efficient one for graph-based deep learning models as
       indices are sorted based on target nodes.
@@ -899,7 +899,7 @@ def recursive_apply_(data: Any, func: Callable) -> Any:
 def recursive_apply(data: Any, func: Callable) -> Any:
     if isinstance(data, Tensor):
         return func(data)
-    elif isinstance(data, paddle.nn.RNN):  # torch.nn.utils.rnn.PackedSequence
+    elif isinstance(data, paddle.nn.RNN):  # paddle.nn.utils.rnn.PackedSequence
         return func(data)
     elif isinstance(data, tuple) and hasattr(data, '_fields'):  # namedtuple
         return type(data)(*(recursive_apply(d, func) for d in data))
