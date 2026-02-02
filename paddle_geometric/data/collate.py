@@ -64,7 +64,7 @@ def collate(
         for store in data.stores:
             key_to_stores[store._key].append(store)
 
-    device: Optional[paddle.Place] = None
+    device: Optional[Union[paddle.CPUPlace, paddle.CUDAPlace]] = None
     slice_dict: SliceDictType = {}
     inc_dict: IncDictType = {}
     for out_store in out.stores:  # type: ignore
@@ -151,21 +151,47 @@ def _collate(
             incs = None
 
         if getattr(elem, 'is_nested', False):
-            # Paddle does not have nested tensor support like PyTorch
-            # Return the values as-is to maintain compatibility
-            return values, slices, incs
+            # Paddle does not have nested tensor support like PyTorch.
+            # For API compatibility, we try to flatten nested tensors.
+            # If the nested structure cannot be handled, we concatenate them as-is.
+            try:
+                tensors = []
+                for nested_tensor in values:
+                    # Try to unbind/flatten the nested structure
+                    if hasattr(nested_tensor, 'unbind'):
+                        tensors.extend(nested_tensor.unbind())
+                    elif hasattr(nested_tensor, '__iter__') and not isinstance(nested_tensor, str):
+                        for sub_tensor in nested_tensor:
+                            tensors.append(sub_tensor)
+                    else:
+                        tensors.append(nested_tensor)
+                value = paddle.concat(tensors, axis=cat_dim or 0)
+                return value, slices, incs
+            except Exception:
+                # Fallback: return as-is if flattening fails
+                return values, slices, incs
 
         out = None
         if get_worker_info is not None and not isinstance(elem, (Index, EdgeIndex)):
             # Write directly into shared memory to avoid an extra copy:
+            # Note: Paddle's shared memory mechanism differs from PyTorch's
             numel = sum(value.numel().item() for value in values)
-            storage = elem._to_shared(numel * elem.element_size(), place=elem.place)
             shape = list(elem.shape)
             if cat_dim is None or elem.ndim == 0:
                 shape = [len(values)] + shape
             else:
                 shape[cat_dim] = int(slices[-1].item())
-            out = elem.new(storage).reshape_(*shape)
+            # Paddle: use to_tensor with memory allocation for shared memory
+            try:
+                if hasattr(elem, '_to_shared'):
+                    storage = elem._to_shared(numel * elem.element_size(), place=elem.place)
+                    out = elem.new(storage).reshape_(*shape)
+                else:
+                    # Fallback: allocate new tensor and copy
+                    out = paddle.empty(shape, dtype=elem.dtype, place=elem.place)
+            except Exception:
+                # If shared memory allocation fails, use default concat
+                out = None
 
         value = paddle.concat(values, axis=cat_dim or 0, out=out)
 
@@ -245,7 +271,7 @@ def _collate(
 
 def _batch_and_ptr(
     slices: Any,
-    device: Optional[paddle.Place] = None,
+    device: Optional[Union[paddle.CPUPlace, paddle.CUDAPlace]] = None,
 ) -> Tuple[Any, Any]:
     if isinstance(slices, Tensor) and slices.ndim == 1:
         repeats = slices[1:] - slices[:-1]
@@ -275,7 +301,7 @@ def _batch_and_ptr(
 
 def repeat_interleave(
     repeats: List[int],
-    device: Optional[paddle.Place] = None,
+    device: Optional[Union[paddle.CPUPlace, paddle.CUDAPlace]] = None,
 ) -> Tensor:
     outs = [paddle.full([n], i, device=device) for i, n in enumerate(repeats)]
     return paddle.concat(outs, axis=0)

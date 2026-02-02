@@ -33,7 +33,7 @@ def index_to_mask(index: Tensor, size: Optional[int] = None) -> Tensor:
     """Converts indices to a mask representation."""
     index = index.view(-1)
     size = int(index.max()) + 1 if size is None else size
-    mask = paddle.zeros(shape=size, dtype="bool", device=index.place)
+    mask = paddle.zeros(shape=size, dtype="bool", place=index.place)
     mask[index] = True
     return mask
 

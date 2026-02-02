@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 import paddle
 from paddle import Tensor
 from tqdm import tqdm
@@ -45,7 +46,12 @@ def maybe_cast_to_tensor_info(value: Any) -> Union[Any, TensorInfo]:
     valid_keys = {'dtype', 'size', 'is_index', 'is_edge_index'}
     if len(set(value.keys()) | valid_keys) != len(valid_keys):
         return value
-    return TensorInfo(**value)
+    try:
+        # Use cast method for consistent type conversion
+        return TensorInfo.cast(value)
+    except (AttributeError, TypeError):
+        # Fallback to direct construction if cast is not available
+        return TensorInfo(**value)
 
 
 SORT_ORDER_TO_INDEX: Dict[Optional[SortOrder], int] = {
@@ -405,7 +411,7 @@ class SQLiteDatabase(Database):
 
                 meta = paddle.to_tensor([
                     col.dim_size if col.dim_size is not None else -1,
-                    1 if col.is_sorted else 0,
+                    col.is_sorted,
                 ], dtype=paddle.int64)
 
                 out.append(meta.numpy().tobytes() +
@@ -419,7 +425,7 @@ class SQLiteDatabase(Database):
                     num_rows if num_rows is not None else -1,
                     num_cols if num_cols is not None else -1,
                     SORT_ORDER_TO_INDEX[col._sort_order],
-                    1 if col.is_undirected else 0,
+                    col.is_undirected,
                 ], dtype=paddle.int64)
 
                 out.append(meta.numpy().tobytes() +
@@ -434,7 +440,12 @@ class SQLiteDatabase(Database):
 
             else:
                 buffer = io.BytesIO()
-                pickle.dump(col, buffer)
+                try:
+                    # Try to use paddle.save for better tensor preservation
+                    paddle.save(col, buffer)
+                except (AttributeError, RuntimeError):
+                    # Fallback to pickle if paddle.save is not available
+                    pickle.dump(col, buffer)
                 out.append(buffer.getvalue())
 
         return out
@@ -455,7 +466,8 @@ class SQLiteDatabase(Database):
                 is_sorted = meta[1].item() > 0
 
                 if len(value) > 16:
-                    tensor = paddle.frombuffer(value[16:], dtype=schema.dtype)
+                    # Paddle doesn't have frombuffer, use numpy.frombuffer + to_tensor
+                    tensor = paddle.to_tensor(np.frombuffer(value[16:], dtype=schema.dtype))
                 else:
                     tensor = paddle.empty(0, dtype=schema.dtype)
 
@@ -473,7 +485,8 @@ class SQLiteDatabase(Database):
                 is_undirected = meta[3].item() > 0
 
                 if len(value) > 32:
-                    tensor = paddle.frombuffer(value[32:], dtype=schema.dtype)
+                    # Paddle doesn't have frombuffer, use numpy.frombuffer + to_tensor
+                    tensor = paddle.to_tensor(np.frombuffer(value[32:], dtype=schema.dtype))
                 else:
                     tensor = paddle.empty(0, dtype=schema.dtype)
 
@@ -486,7 +499,8 @@ class SQLiteDatabase(Database):
 
             elif isinstance(schema, TensorInfo):
                 if len(value) > 0:
-                    tensor = paddle.frombuffer(value, dtype=schema.dtype)
+                    # Paddle doesn't have frombuffer, use numpy.frombuffer + to_tensor
+                    tensor = paddle.to_tensor(np.frombuffer(value, dtype=schema.dtype))
                 else:
                     tensor = paddle.empty(0, dtype=schema.dtype)
                 out_dict[key] = tensor.reshape(*schema.size)
@@ -498,7 +512,12 @@ class SQLiteDatabase(Database):
                 out_dict[key] = value
 
             else:
-                out_dict[key] = pickle.loads(value)
+                try:
+                    # Try to use paddle.load for better tensor restoration
+                    out_dict[key] = paddle.load(io.BytesIO(value))
+                except (AttributeError, RuntimeError):
+                    # Fallback to pickle if paddle.load is not available
+                    out_dict[key] = pickle.loads(value)
 
         # In case `0` exists as integer in the schema, this means that the
         # schema was passed as either a single entry or a tuple:
@@ -577,9 +596,19 @@ class RocksDatabase(Database):
         if isinstance(row, Tensor):
             row = row.clone()
         buffer = io.BytesIO()
-        pickle.dump(row, buffer)
+        try:
+            # Try to use paddle.save for better tensor preservation
+            paddle.save(row, buffer)
+        except (AttributeError, RuntimeError):
+            # Fallback to pickle if paddle.save is not available
+            pickle.dump(row, buffer)
         return buffer.getvalue()
 
     def _deserialize(self, row: bytes) -> Any:
         """Deserialize a byte stream into original data."""
-        return pickle.loads(row)
+        try:
+            # Try to use paddle.load for better tensor restoration
+            return paddle.load(io.BytesIO(row))
+        except (AttributeError, RuntimeError):
+            # Fallback to pickle if paddle.load is not available
+            return pickle.loads(row)
