@@ -266,11 +266,9 @@ class SQLiteDatabase(Database):
         indices: Union[Sequence[int], Tensor, range],
         data_list: Sequence[Any],
     ) -> None:
-        """优化的批量插入，使用 executemany"""
         if isinstance(indices, Tensor):
             indices = indices.tolist()
 
-        # 预序列化所有数据
         data_list = [(index, *self._serialize(data))
                      for index, data in zip(indices, data_list)]
 
@@ -295,34 +293,28 @@ class SQLiteDatabase(Database):
         indices: Union[Sequence[int], Tensor, slice, range],
         batch_size: Optional[int] = None,
     ) -> List[Any]:
-        """优化的批量获取，使用临时表 INNER JOIN"""
         if isinstance(indices, slice):
             indices = self.slice_to_range(indices)
         elif isinstance(indices, Tensor):
             indices = indices.tolist()
 
-        # 创建临时表用于 JOIN
         join_table_name = f'{self.name}__join'
-        # Temporary tables do not lock the database.
         query = (f'CREATE TEMP TABLE {join_table_name} (\n'
                  f'  id INTEGER,\n'
                  f'  row_id INTEGER\n'
                  f')')
         self.cursor.execute(query)
 
-        # 批量插入要查询的索引
         query = f'INSERT INTO {join_table_name} (id, row_id) VALUES (?, ?)'
         self.cursor.executemany(query, zip(indices, range(len(indices))))
         self.connection.commit()
 
-        # INNER JOIN 获取数据，保证顺序
         query = (f'SELECT {self._joined_col_names} '
                  f'FROM {self.name} INNER JOIN {join_table_name} '
                  f'ON {self.name}.id = {join_table_name}.id '
                  f'ORDER BY {join_table_name}.row_id')
         self.cursor.execute(query)
 
-        # 支持分批读取
         if batch_size is None:
             data_list = self.cursor.fetchall()
         else:
@@ -333,7 +325,6 @@ class SQLiteDatabase(Database):
                     break
                 data_list.extend(chunk_list)
 
-        # 清理临时表
         query = f'DROP TABLE {join_table_name}'
         self.cursor.execute(query)
 
@@ -349,37 +340,51 @@ class SQLiteDatabase(Database):
 
     @cached_property
     def _col_names(self) -> List[str]:
-        """生成 SQL 列名列表 ['COL_0', 'COL_x', ...]"""
         return [f'COL_{key}' for key in self.schema.keys()]
 
     @cached_property
     def _joined_col_names(self) -> str:
-        """生成逗号连接的列名 'COL_0, COL_x, ...'"""
         return ', '.join(self._col_names)
 
     @cached_property
     def _dummies(self) -> str:
-        """生成 SQL 占位符 '?, ?, ...'"""
         return ', '.join(['?'] * len(self.schema.keys()))
 
     def _to_sql_type(self, type_info: Any) -> str:
-        """将 schema 类型映射到 SQL 类型"""
         if type_info == int:
             return 'INTEGER NOT NULL'
         if type_info == float:
             return 'FLOAT'
         if type_info == str:
             return 'TEXT NOT NULL'
-        # TensorInfo 或其他复杂类型
         return 'BLOB NOT NULL'
 
     def _serialize(self, data: Any) -> List[bytes]:
         """Serialize data into a byte stream."""
-        return [pickle.dumps(data.get(key)) for key in self.schema.keys()]
+        # Handle both dict-like data and single tensor/data
+        if isinstance(data, dict):
+            return [pickle.dumps(data.get(key)) for key in self.schema.keys()]
+        elif len(self.schema) == 1 and 0 in self.schema:
+            # Single object schema: {0: type}, data is a single value (e.g., Tensor)
+            return [pickle.dumps(data)]
+        else:
+            # Fallback: try to access as dict or use data directly
+            return [
+                pickle.dumps(data.get(key) if hasattr(data, 'get') else data)
+                for key in self.schema.keys()
+            ]
 
-    def _deserialize(self, row: Tuple[bytes]) -> Dict[str, Any]:
+    def _deserialize(self, row: Tuple[bytes]) -> Any:
         """Deserialize a byte stream into original data."""
-        return {key: pickle.loads(value) for key, value in zip(self.schema.keys(), row)}
+        result = {
+            key: pickle.loads(value)
+            for key, value in zip(self.schema.keys(), row)
+        }
+
+        # If schema has only one key (0), return the single value instead of dict
+        if len(result) == 1 and 0 in result:
+            return result[0]
+        return result
 
 
 class RocksDatabase(Database):
