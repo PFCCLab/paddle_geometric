@@ -188,6 +188,19 @@ class TemporalData(BaseData):
         size = (int(self.src.max()), int(self.dst.max()))
         return size if dim is None else size[dim]
 
+    def __cat_dim__(self, key: str, value: Any, *args, **kwargs) -> Any:
+        return 0
+
+    def __inc__(self, key: str, value: Any, *args, **kwargs) -> Any:
+        if 'batch' in key and isinstance(value, Tensor):
+            return int(value.max().item()) + 1
+        elif key in ['src', 'dst']:
+            return self.num_nodes
+        else:
+            return 0
+
+    ###########################################################################
+
     def train_val_test_split(self, val_ratio: float = 0.15,
                              test_ratio: float = 0.15):
         """Splits the data into training, validation, and test sets based on
@@ -205,6 +218,22 @@ class TemporalData(BaseData):
         cls = self.__class__.__name__
         info = ', '.join([size_repr(k, v) for k, v in self._store.items()])
         return f'{cls}({info})'
+    ###########################################################################
+
+    def coalesce(self):
+        raise NotImplementedError
+
+    def has_isolated_nodes(self) -> bool:
+        raise NotImplementedError
+
+    def has_self_loops(self) -> bool:
+        raise NotImplementedError
+
+    def is_undirected(self) -> bool:
+        raise NotImplementedError
+
+    def is_directed(self) -> bool:
+        raise NotImplementedError
 
 
 ###############################################################################

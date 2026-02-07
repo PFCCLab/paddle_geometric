@@ -15,6 +15,7 @@ from typing import (
 import paddle
 from paddle import Tensor
 
+import paddle_geometric.typing
 from paddle_geometric import EdgeIndex, Index
 from paddle_geometric.data.data import BaseData
 from paddle_geometric.data.storage import BaseStorage, NodeStorage
@@ -137,9 +138,18 @@ def _collate(
         if increment:
             incs = get_incs(key, values, data_list, stores)
             if incs.ndim > 1 or int(incs[-1]) != 0:
-                values = [value + inc for value, inc in zip(values, incs)]
+                values = [value + inc.to(value.device) if hasattr(inc, 'to') else value + inc
+                          for value, inc in zip(values, incs)]
         else:
             incs = None
+
+        if getattr(elem, 'is_nested', False):
+            tensors = []
+            for nested_tensor in values:
+                tensors.extend(paddle.unbind(nested_tensor, axis=0))
+            value = paddle.nn.utils.rnn.pad_sequence(tensors)
+            return value, slices, incs
+
         value = paddle.concat(values, axis=cat_dim or 0)
         if increment and isinstance(value, Index) and values[0].is_sorted:
             # Check whether the whole `Index` is sorted:
