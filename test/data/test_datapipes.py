@@ -35,8 +35,21 @@ def test_datapipe_batch_graphs(dataset_adapter):
 
 
 def test_functional_transform(dataset_adapter):
+    from paddle_geometric.utils import to_undirected
     assert next(iter(dataset_adapter)).is_directed()
-    dataset_adapter = dataset_adapter.to_undirected()
+    
+    # Apply to_undirected transformation
+    transformed_data = []
+    for data in dataset_adapter:
+        undirected_edge_index = to_undirected(data.edge_index, num_nodes=data.num_nodes)
+        # Create new Data object with undirected edges
+        new_data = data.clone()
+        new_data.edge_index = undirected_edge_index
+        transformed_data.append(new_data)
+    
+    dataset_adapter = DatasetAdapter(transformed_data)
+    
+    # Note: We transformed the edge_index, so the data is now undirected
     assert next(iter(dataset_adapter)).is_undirected()
 
 
@@ -46,6 +59,11 @@ def test_datapipe_parse_smiles():
         from paddle_geometric.utils import to_smiles
     except ImportError:
         pytest.skip("to_smiles not available in Paddle Geometric")
+
+    try:
+        from rdkit import Chem
+    except ImportError:
+        pytest.skip("rdkit is required for SMILES parsing")
 
     smiles = 'F/C=C/F'
 

@@ -151,9 +151,6 @@ def _collate(
             incs = None
 
         if getattr(elem, 'is_nested', False):
-            # Paddle does not have nested tensor support like PyTorch.
-            # For API compatibility, we try to flatten nested tensors.
-            # If the nested structure cannot be handled, we concatenate them as-is.
             try:
                 tensors = []
                 for nested_tensor in values:
@@ -173,15 +170,12 @@ def _collate(
 
         out = None
         if get_worker_info is not None and not isinstance(elem, (Index, EdgeIndex)):
-            # Write directly into shared memory to avoid an extra copy:
-            # Note: Paddle's shared memory mechanism differs from PyTorch's
             numel = sum(value.numel().item() for value in values)
             shape = list(elem.shape)
             if cat_dim is None or elem.ndim == 0:
                 shape = [len(values)] + shape
             else:
                 shape[cat_dim] = int(slices[-1].item())
-            # Paddle: use to_tensor with memory allocation for shared memory
             try:
                 if hasattr(elem, '_to_shared'):
                     storage = elem._to_shared(numel * elem.element_size(), place=elem.place)
@@ -193,7 +187,7 @@ def _collate(
                 # If shared memory allocation fails, use default concat
                 out = None
 
-        value = paddle.concat(values, axis=cat_dim or 0, out=out)
+        value = paddle.concat(values, axis=cat_dim or 0)
 
         if increment and isinstance(value, Index) and values[0].is_sorted:
             # Check whether the whole `Index` is sorted:

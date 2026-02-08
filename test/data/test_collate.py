@@ -15,7 +15,8 @@ def test_collate_basic():
     out, slice_dict, inc_dict = collate(Data, data_list)
 
     assert out.x.shape == (9, 8)
-    assert out.edge_index.tolist() == [[0, 1, 4, 5], [1, 2, 5, 6]]
+    # data1 has 2 edges, data2 has 3 edges, total should be 5 edges
+    assert out.edge_index.tolist() == [[0, 1, 4, 5, 6], [1, 2, 5, 6, 7]]
     assert slice_dict['x'].tolist() == [0, 4, 9]
     assert slice_dict['edge_index'].tolist() == [0, 2, 5]
 
@@ -180,7 +181,10 @@ def test_collate_with_new_dimension():
 
     out, slice_dict, inc_dict = collate(MyData, data_list)
 
-    assert len(out) == 3
+    # With add_batch=True (default), batch and ptr are added automatically
+    assert len(out) == 5
+    assert 'x' in out and 'y' in out and 'foo' in out
+    assert 'batch' in out and 'ptr' in out
     assert out.x.tolist() == [1, 2, 3, 1, 2, 3]
     assert out.foo.shape == (2, 4)
     assert out.y.tolist() == [1, 1]

@@ -16,6 +16,26 @@ from paddle_geometric.edge_index import SortOrder
 from paddle_geometric.utils.mixin import CastMixin
 
 
+def _paddle_dtype_to_numpy_dtype(dtype: paddle.dtype) -> np.dtype:
+    """Convert Paddle dtype to numpy dtype."""
+    dtype_map = {
+        paddle.float16: np.float16,
+        paddle.float32: np.float32,
+        paddle.float64: np.float64,
+        paddle.int8: np.int8,
+        paddle.int16: np.int16,
+        paddle.int32: np.int32,
+        paddle.int64: np.int64,
+        paddle.uint8: np.uint8,
+        paddle.uint16: np.uint16,
+        paddle.bool: np.bool_,
+        paddle.complex64: np.complex64,
+        paddle.complex128: np.complex128,
+        paddle.bfloat16: np.float16,  # numpy doesn't have bfloat16, use float16
+    }
+    return dtype_map.get(dtype, np.float32)
+
+
 @dataclass
 class TensorInfo(CastMixin):
     """Describes the type information of a tensor, including data type, size,
@@ -461,13 +481,21 @@ class SQLiteDatabase(Database):
             value = row[i]
 
             if isinstance(schema, TensorInfo) and schema.is_index:
-                meta = paddle.to_tensor(value[:16], dtype=paddle.int64)
+                # Ensure value is bytes type
+                if isinstance(value, (bytes, np.ndarray)):
+                    value_bytes = value.tobytes() if isinstance(value, np.ndarray) else value
+                else:
+                    value_bytes = bytes(value)
+
+                # Convert bytes to numpy array first, then to tensor
+                meta_np = np.frombuffer(value_bytes[:16], dtype=np.int64)
+                meta = paddle.to_tensor(meta_np)
                 dim_size = int(meta[0].item()) if meta[0].item() >= 0 else None
                 is_sorted = meta[1].item() > 0
 
-                if len(value) > 16:
+                if len(value_bytes) > 16:
                     # Paddle doesn't have frombuffer, use numpy.frombuffer + to_tensor
-                    tensor = paddle.to_tensor(np.frombuffer(value[16:], dtype=schema.dtype))
+                    tensor = paddle.to_tensor(np.frombuffer(value_bytes[16:], dtype=_paddle_dtype_to_numpy_dtype(schema.dtype)))
                 else:
                     tensor = paddle.empty(0, dtype=schema.dtype)
 
@@ -478,29 +506,43 @@ class SQLiteDatabase(Database):
                 )
 
             elif isinstance(schema, TensorInfo) and schema.is_edge_index:
-                meta = paddle.to_tensor(value[:32], dtype=paddle.int64)
+                # Ensure value is bytes type
+                if isinstance(value, (bytes, np.ndarray)):
+                    value_bytes = value.tobytes() if isinstance(value, np.ndarray) else value
+                else:
+                    value_bytes = bytes(value)
+
+                # Convert bytes to numpy array first, then to tensor
+                meta_np = np.frombuffer(value_bytes[:32], dtype=np.int64)
+                meta = paddle.to_tensor(meta_np)
                 num_rows = int(meta[0].item()) if meta[0].item() >= 0 else None
                 num_cols = int(meta[1].item()) if meta[1].item() >= 0 else None
                 sort_order = INDEX_TO_SORT_ORDER[int(meta[2].item())]
                 is_undirected = meta[3].item() > 0
 
-                if len(value) > 32:
+                if len(value_bytes) > 32:
                     # Paddle doesn't have frombuffer, use numpy.frombuffer + to_tensor
-                    tensor = paddle.to_tensor(np.frombuffer(value[32:], dtype=schema.dtype))
+                    tensor = paddle.to_tensor(np.frombuffer(value_bytes[32:], dtype=_paddle_dtype_to_numpy_dtype(schema.dtype)))
                 else:
                     tensor = paddle.empty(0, dtype=schema.dtype)
 
                 out_dict[key] = EdgeIndex(
-                    tensor.reshape(*schema.size),
+                    tensor.reshape(*schema.size).contiguous(),
                     sparse_size=(num_rows, num_cols),
                     sort_order=sort_order,
                     is_undirected=is_undirected,
                 )
 
             elif isinstance(schema, TensorInfo):
-                if len(value) > 0:
+                # Ensure value is bytes type
+                if isinstance(value, (bytes, np.ndarray)):
+                    value_bytes = value.tobytes() if isinstance(value, np.ndarray) else value
+                else:
+                    value_bytes = bytes(value)
+
+                if len(value_bytes) > 0:
                     # Paddle doesn't have frombuffer, use numpy.frombuffer + to_tensor
-                    tensor = paddle.to_tensor(np.frombuffer(value, dtype=schema.dtype))
+                    tensor = paddle.to_tensor(np.frombuffer(value_bytes, dtype=_paddle_dtype_to_numpy_dtype(schema.dtype)))
                 else:
                     tensor = paddle.empty(0, dtype=schema.dtype)
                 out_dict[key] = tensor.reshape(*schema.size)

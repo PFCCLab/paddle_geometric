@@ -43,7 +43,7 @@ def test_database_single_tensor(tmp_path, Database, batch_size):
         assert len(db) == 1
     except NotImplementedError:
         pass
-    assert paddle.equal(db.get(0), data)
+    assert paddle.equal(db.get(0), data).all()
 
     indices = paddle.to_tensor([1, 2])
     data_list = paddle.randn((2, 5))
@@ -55,8 +55,8 @@ def test_database_single_tensor(tmp_path, Database, batch_size):
     out_list = db.multi_get(indices, batch_size=batch_size)
     assert isinstance(out_list, list)
     assert len(out_list) == 2
-    assert paddle.equal(out_list[0], data_list[0])
-    assert paddle.equal(out_list[1], data_list[1])
+    assert paddle.equal(out_list[0], data_list[0]).all()
+    assert paddle.equal(out_list[1], data_list[1]).all()
 
     db.close()
 
@@ -92,9 +92,9 @@ def test_database_schema(tmp_path, Database):
         else:
             assert out[1] == data[1]
         assert out[2] == data[2]
-        assert paddle.equal(out[3], data[3])
+        assert paddle.equal(out[3], data[3]).all()
         assert isinstance(out[4], Data) and len(out[4]) == 1
-        assert paddle.equal(out[4].x, data[4].x)
+        assert paddle.equal(out[4].x, data[4].x).all()
 
     db.close()
 
@@ -146,9 +146,9 @@ def test_database_schema(tmp_path, Database):
         assert out['int'] == data['int']
         assert out['float'] == data['float']
         assert out['str'] == data['str']
-        assert paddle.equal(out['tensor'], data['tensor'])
+        assert paddle.equal(out['tensor'], data['tensor']).all()
         assert isinstance(out['data'], Data) and len(out['data']) == 1
-        assert paddle.equal(out['data'].x, data['data'].x)
+        assert paddle.equal(out['data'].x, data['data'].x).all()
 
     db.close()
 
@@ -181,7 +181,7 @@ def test_index(tmp_path, Database):
     out2, out3 = db.multi_get([1, 2])
 
     for out, index in zip([out1, out2, out3], [index1, index2, index3]):
-        assert index.equal(out)
+        assert index.equal(out).all()
         assert index.dtype == out.dtype
         assert index.dim_size == out.dim_size
         assert index.is_sorted == out.is_sorted
@@ -226,7 +226,7 @@ def test_edge_index(tmp_path, Database):
     out2, out3 = db.multi_get([1, 2])
 
     for out, adj in zip([out1, out2, out3], [adj1, adj2, adj3]):
-        assert adj.equal(out)
+        assert adj.equal(out).all()
         assert adj.dtype == out.dtype
         assert adj.sparse_size() == out.sparse_size()
         assert adj.sort_order == out.sort_order
@@ -250,19 +250,19 @@ def test_database_syntactic_sugar(tmp_path):
     db[paddle.to_tensor([3, 4])] = data[paddle.to_tensor([3, 4])]
     assert len(db) == 5
 
-    assert paddle.equal(db[0], data[0])
-    assert paddle.equal(paddle.stack(db[:3], axis=0), data[:3])
-    assert paddle.equal(paddle.stack(db[3:], axis=0), data[3:])
-    assert paddle.equal(paddle.stack(db[1::2], axis=0), data[1::2])
-    assert paddle.equal(paddle.stack(db[[4, 3]], axis=0), data[[4, 3]])
+    assert paddle.equal(db[0], data[0]).all()
+    assert paddle.equal(paddle.stack(db[:3], axis=0), data[:3]).all()
+    assert paddle.equal(paddle.stack(db[3:], axis=0), data[3:]).all()
+    assert paddle.equal(paddle.stack(db[1::2], axis=0), data[1::2]).all()
+    assert paddle.equal(paddle.stack(db[[4, 3]], axis=0), data[[4, 3]]).all()
     assert paddle.equal(
         paddle.stack(db[paddle.to_tensor([4, 3])], axis=0),
         data[paddle.to_tensor([4, 3])],
-    )
+    ).all()
     assert paddle.equal(
         paddle.stack(db[paddle.to_tensor([4, 4])], axis=0),
         data[paddle.to_tensor([4, 4])],
-    )
+    ).all()
 
 
 if __name__ == '__main__':

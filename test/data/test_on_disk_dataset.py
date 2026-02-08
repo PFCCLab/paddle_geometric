@@ -27,14 +27,14 @@ def test_pickle(tmp_path):
     assert len(dataset) == 4
 
     out = dataset.get(0)
-    assert paddle.equal(out.x, data_list[0].x)
-    assert paddle.equal(out.edge_index, data_list[0].edge_index)
+    assert paddle.equal(out.x, data_list[0].x).all()
+    assert paddle.equal(out.edge_index, data_list[0].edge_index).all()
     assert out.num_nodes == data_list[0].num_nodes
 
     out_list = dataset.multi_get([1, 2, 3])
     for out, data in zip(out_list, data_list[1:]):
-        assert paddle.equal(out.x, data.x)
-        assert paddle.equal(out.edge_index, data.edge_index)
+        assert paddle.equal(out.x, data.x).all()
+        assert paddle.equal(out.edge_index, data.edge_index).all()
         assert out.num_nodes == data.num_nodes
 
     dataset.close()
@@ -44,8 +44,8 @@ def test_pickle(tmp_path):
     assert len(dataset) == 4
 
     out = dataset.get(0)
-    assert paddle.equal(out.x, data_list[0].x)
-    assert paddle.equal(out.edge_index, data_list[0].edge_index)
+    assert paddle.equal(out.x, data_list[0].x).all()
+    assert paddle.equal(out.edge_index, data_list[0].edge_index).all()
     assert out.num_nodes == data_list[0].num_nodes
 
     dataset.close()
@@ -94,15 +94,15 @@ def test_custom_schema(tmp_path):
 
     out = dataset.get(0)
     assert dataset.deserialize_count == 1
-    assert paddle.equal(out.x, data_list[0].x)
-    assert paddle.equal(out.edge_index, data_list[0].edge_index)
+    assert paddle.equal(out.x, data_list[0].x).all()
+    assert paddle.equal(out.edge_index, data_list[0].edge_index).all()
     assert out.num_nodes == data_list[0].num_nodes
 
     out_list = dataset.multi_get([1, 2, 3])
     assert dataset.deserialize_count == 4
     for out, data in zip(out_list, data_list[1:]):
-        assert paddle.equal(out.x, data.x)
-        assert paddle.equal(out.edge_index, data.edge_index)
+        assert paddle.equal(out.x, data.x).all()
+        assert paddle.equal(out.edge_index, data.edge_index).all()
         assert out.num_nodes == data.num_nodes
 
     dataset.close()
