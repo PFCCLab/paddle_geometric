@@ -58,7 +58,8 @@ class PANConv(MessagePassing):
     def reset_parameters(self):
         super().reset_parameters()
         self.lin.reset_parameters()
-        self.weight.set_value(paddle.full([self.filter_size + 1], 0.5))
+
+        self.weight.set_value(paddle.full([self.filter_size + 1], 0.5, dtype=self.weight.dtype))
 
     def forward(
         self,
@@ -86,7 +87,22 @@ class PANConv(MessagePassing):
         deg = adj_t.storage.rowcount().astype(x.dtype)
         deg_inv_sqrt = deg.pow(-0.5)
         deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), paddle.zeros_like(deg_inv_sqrt), deg_inv_sqrt)
-        M = deg_inv_sqrt.reshape([1, -1]) * adj_t * deg_inv_sqrt.reshape([-1, 1])
+
+        # M = deg_inv_sqrt.reshape([1, -1]) * adj_t * deg_inv_sqrt.reshape([-1, 1])
+        if not adj_t.has_value():
+            adj_t = adj_t.fill_value(1.0)
+        
+
+        row, col, value = adj_t.coo()
+
+        row_norm = deg_inv_sqrt[row]
+
+        col_norm = deg_inv_sqrt[col]
+
+        normalized_value = value * row_norm * col_norm
+
+        M = SparseTensor(row=row, col=col, value=normalized_value,
+                        sparse_sizes=adj_t.sparse_sizes())
 
         out = self.propagate(M, x=x, edge_weight=None)
         out = self.lin(out)
@@ -104,8 +120,10 @@ class PANConv(MessagePassing):
         if not adj_t.has_value():
             adj_t = adj_t.fill_value(1.0)
 
+        device = adj_t.device() if hasattr(adj_t, 'device') else None
+
         tmp = SparseTensor.eye(adj_t.size(0), adj_t.size(1), has_value=True,
-                               dtype=dtype, device=adj_t.place)
+                               dtype=dtype, device=device)
         tmp = tmp.mul_nnz(self.weight[0])
 
         outs = [tmp]

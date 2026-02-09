@@ -42,19 +42,35 @@ def {{collect_name}}(
             raise ValueError("Cannot collect 'edge_indices' for sparse matrices")
 {%- endif %}
             adj_t = edge_index
-            edge_index, _value = to_edge_index(adj_t)
-            edge_index_i = edge_index[0]
-            edge_index_j = edge_index[1]
-            ptr = None
+            if hasattr(adj_t, 'is_sparse_coo') and adj_t.is_sparse_coo():
+                edge_index_i = adj_t.indices()[0]
+                edge_index_j = adj_t.indices()[1]
+                ptr = None
+            elif hasattr(adj_t, 'is_sparse_csr') and adj_t.is_sparse_csr():
+                ptr = adj_t.crows()
+                edge_index_j = adj_t.cols()
+                edge_index_i = ptr2index(ptr, output_size=edge_index_j.numel())
+            else:
+                edge_index, _value = to_edge_index(adj_t)
+                edge_index_i = edge_index[0]
+                edge_index_j = edge_index[1]
+                ptr = None
 
 {%- if 'edge_weight' in collect_param_dict %}
-            if edge_weight is None:
+            if edge_weight is None and hasattr(adj_t, 'values'):
+                edge_weight = adj_t.values()
+            elif edge_weight is None and '_value' in locals():
                 edge_weight = _value
 {%- elif 'edge_attr' in collect_param_dict %}
-            if edge_attr is None:
+            if edge_attr is None and hasattr(adj_t, 'values'):
+                _value = adj_t.values()
+                edge_attr = None if _value.dim() == 1 else _value
+            elif edge_attr is None and '_value' in locals():
                 edge_attr = None if _value is None or _value.ndim == 1 else _value
 {%- elif 'edge_type' in collect_param_dict %}
-            if edge_type is None:
+            if edge_type is None and hasattr(adj_t, 'values'):
+                edge_type = adj_t.values()
+            elif edge_type is None and '_value' in locals():
                 edge_type = _value
 {%- endif %}
 

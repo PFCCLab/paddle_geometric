@@ -46,7 +46,7 @@ def _paddle_segment(src: Tensor, ptr: Tensor, reduce: str = 'sum') -> Tensor:
     initial = 0 if reduce == 'mean' else None
     out = segment_reduce(src, reduce, offsets=ptr, initial=initial)
     if reduce == 'amin' or reduce == 'amax':
-        out = paddle.where(out.isinf(), 0, out)
+        out = paddle.where(out.isinf(), paddle.zeros_like(out), out)
     return out
 
 
@@ -64,9 +64,9 @@ def get_reduction_enum(reduce: str) -> ReductionType:
         return ReductionType.SUM
     elif reduce == "mean":
         return ReductionType.MEAN
-    elif reduce == "max":
+    elif reduce == "max" or reduce == "amax":
         return ReductionType.MAX
-    elif reduce == "min":
+    elif reduce == "min" or reduce == "amin":
         return ReductionType.MIN
     elif reduce == "prod":
         return ReductionType.PROD
@@ -230,6 +230,20 @@ def _segment_reduce_offsets(
                     output_slice[seg_idx].fill_(value=1)
                 continue
             seg_data = data_slice[start_idx:end_idx]
+            if seg_data.shape[0] == 0:
+                if reduction == ReductionType.MEAN and initial is None:
+                    output_slice[seg_idx].fill_(value=paddle.nan)
+                elif initial is not None:
+                    output_slice[seg_idx].fill_(value=initial)
+                elif reduction == ReductionType.MAX:
+                    output_slice[seg_idx].fill_(value=-paddle.inf)
+                elif reduction in [ReductionType.SUM, ReductionType.MEAN]:
+                    output_slice[seg_idx].fill_(value=0)
+                elif reduction == ReductionType.MIN:
+                    output_slice[seg_idx].fill_(value=paddle.inf)
+                elif reduction == ReductionType.PROD:
+                    output_slice[seg_idx].fill_(value=1)
+                continue
             if reduction == ReductionType.SUM:
                 result = seg_data.sum(axis=0)
             elif reduction == ReductionType.MEAN:

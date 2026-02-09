@@ -68,7 +68,7 @@ class WLConv(paddle.nn.Layer):
                 self.hashmap[idx] = len(self.hashmap)
             out.append(self.hashmap[idx])
 
-        return paddle.to_tensor(out, dtype=paddle.int64, place=x.place)
+        return paddle.to_tensor(out, dtype=paddle.int64)
 
     def histogram(self, x: Tensor, batch: Optional[Tensor] = None,
                   norm: bool = False) -> Tensor:
@@ -76,7 +76,7 @@ class WLConv(paddle.nn.Layer):
         the respective graphs (separated by :obj:`batch`).
         """
         if batch is None:
-            batch = paddle.zeros([x.shape[0]], dtype=paddle.int64, place=x.place)
+            batch = paddle.zeros([x.shape[0]], dtype=paddle.int64)
 
         num_colors = len(self.hashmap)
         batch_size = int(batch.max()) + 1

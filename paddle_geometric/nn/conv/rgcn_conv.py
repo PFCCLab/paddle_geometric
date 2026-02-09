@@ -104,8 +104,7 @@ class RGCNConv(MessagePassing):
         # Convert input features to a pair of node features or node indices.
         x_l: OptTensor = x[0] if isinstance(x, tuple) else x
         if x_l is None:
-            x_l = paddle.arange(self.in_channels_l, dtype='int64',
-                                place=self.weight.place)
+            x_l = paddle.arange(self.in_channels_l, dtype='int64')
 
         x_r: Tensor = x_l if not isinstance(x, tuple) else x[1]
 
@@ -114,7 +113,7 @@ class RGCNConv(MessagePassing):
             edge_type = edge_index.storage.value()
         assert edge_type is not None
 
-        out = paddle.zeros([x_r.shape[0], self.out_channels], dtype=x_r.dtype)
+        out = paddle.zeros([x_r.shape[0], self.out_channels], dtype=self.weight.dtype)
 
         weight = self.weight
         if self.num_bases is not None:  # Basis-decomposition
@@ -129,7 +128,7 @@ class RGCNConv(MessagePassing):
 
             for i in range(self.num_relations):
                 tmp = masked_edge_index(edge_index, edge_type == i)
-                h = self.propagate(tmp, x=x_l, edge_type_ptr=None, size=size)
+                h = self.propagate(tmp, x=x_l, size=size)
                 h = h.reshape([-1, weight.shape[1], weight.shape[2]])
                 h = paddle.einsum('abc,bcd->abd', h, weight[i])
                 out = out + h.reshape([-1, self.out_channels])
@@ -155,7 +154,7 @@ class RGCNConv(MessagePassing):
 
         return out
 
-    def message(self, x_j: Tensor, edge_type_ptr: Optional[Tensor]) -> Tensor:
+    def message(self, x_j: Tensor) -> Tensor:
         return x_j
 
     def message_and_aggregate(self, adj_t: Adj, x: Tensor) -> Tensor:
@@ -180,8 +179,7 @@ class FastRGCNConv(RGCNConv):
         # Convert input features to a pair of node features or node indices.
         x_l: OptTensor = x[0] if isinstance(x, tuple) else x
         if x_l is None:
-            x_l = paddle.arange(self.in_channels_l, dtype='int64',
-                                place=self.weight.place)
+            x_l = paddle.arange(self.in_channels_l, dtype='int64')
 
         x_r: Tensor = x_l if not isinstance(x, tuple) else x[1]
 

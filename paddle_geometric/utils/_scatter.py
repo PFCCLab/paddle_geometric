@@ -74,10 +74,16 @@ def scatter(
 
     # For "sum" and "mean" reduction, we make use of `put_along_axis_`:
     if reduce == 'sum' or reduce == 'add':
+        if index.numel() == 0:
+            return src.new_zeros(size)
+
         index = broadcast(index, src, dim)
         return src.new_zeros(size).scatter_add_(dim=dim, index=index, src=src)
 
     if reduce == 'mean':
+        if index.numel() == 0:
+            return src.new_zeros(size)
+
         count = paddle.zeros(dim_size, device=src.place)
         count.scatter_add_(
             dim=0,
@@ -115,7 +121,7 @@ def scatter(
 
         if src.dtype in (paddle.float16, paddle.float32, paddle.float64,
                          paddle.bfloat16):
-            fill_value = float('-inf') if reduce_kind == 'max' else float('inf')
+            fill_value = paddle.min(src).item() if reduce_kind == 'max' else paddle.max(src).item()
         else:
             info = paddle.iinfo(src.dtype)
             fill_value = info.min if reduce_kind == 'max' else info.max

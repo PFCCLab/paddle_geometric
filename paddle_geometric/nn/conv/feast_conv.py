@@ -94,9 +94,10 @@ class FeaStConv(MessagePassing):
             if is_paddle_sparse_tensor(edge_index):
                 # `edge_index` is already transposed for sparse inputs.
                 ei, ea = to_edge_index(edge_index)
-                ei, ea = add_self_loops(ei, ea, num_nodes=x[1].shape[0])
+                ei, _ = remove_self_loops(ei)
+                ei, _ = add_self_loops(ei, num_nodes=x[1].shape[0])
                 edge_index = to_paddle_csr_tensor(
-                    ei, ea, size=(x[1].shape[0], x[0].shape[0]),
+                    ei, size=(x[0].shape[0], x[1].shape[0]),
                     is_coalesced=True)
             elif isinstance(edge_index, Tensor):
                 edge_index, _ = remove_self_loops(edge_index)

@@ -60,7 +60,7 @@ class TAGConv(MessagePassing):
         if bias:
             self.bias = self.create_parameter(shape=[out_channels])
         else:
-            self.bias = None
+            self.add_parameter('bias', None)
 
         self.reset_parameters()
 

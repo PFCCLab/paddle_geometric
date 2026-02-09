@@ -456,10 +456,11 @@ class MessagePassing(paddle.nn.Layer):
 
             out['ptr'] = None
             if not _is_scripting() and isinstance(edge_index, EdgeIndex):
+
                 if i == 0 and edge_index.is_sorted_by_row:
                     (out['ptr'], _), _ = edge_index.get_csr()
-                elif i == 1 and edge_index.is_sorted_by_col:
-                    (out['ptr'], _), _ = edge_index.get_csc()
+                # elif i == 1 and edge_index.is_sorted_by_col:
+                #     (out['ptr'], _), _ = edge_index.get_csc()
 
         elif isinstance(edge_index, SparseTensor):
             row, col, value = edge_index.coo()

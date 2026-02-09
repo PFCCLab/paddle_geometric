@@ -51,7 +51,7 @@ class AGNNConv(MessagePassing):
         if requires_grad:
             self.beta = self.create_parameter(shape=[1])
         else:
-            self.register_buffer('beta', paddle.ones([1]))
+            self.register_buffer('beta', paddle.to_tensor([1.0], dtype=paddle.float32))
 
         self.reset_parameters()
 

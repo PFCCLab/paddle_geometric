@@ -1,6 +1,7 @@
 import functools
 import warnings
 from enum import Enum
+import numpy as np
 from typing import (
     Any,
     Callable,
@@ -613,9 +614,17 @@ class EdgeIndex(BaseTensorSubclass):
         :obj:`(colptr, row), perm` in case :class:`EdgeIndex` is sorted.
         """
         if self.is_sorted_by_col:
-            return (self.get_indptr(), self._data[0]), None
+            # Verify that the data is actually sorted by column
+            indices_np = np.lexsort([self._data[0].numpy(), self._data[1].numpy()])
+            # Create the sorted version
+            sorted_indices = paddle.to_tensor(indices_np, dtype=self.dtype)
+            sorted_data = self._data[:, sorted_indices]
+            # Check if current data matches sorted data
+            if paddle.equal(self._data, sorted_data).all():
+                # Data is properly sorted, use cached indptr
+                return (self.get_indptr(), self._data[0]), None
 
-        assert self.is_sorted_by_row
+        # Data is not properly sorted, need to transpose
         (row, col), perm = self._sort_by_transpose()
 
         if self._T_indptr is not None:
@@ -1717,7 +1726,15 @@ def matmul(
             raise ValueError("'other_value' not supported for sparse-dense "
                              "matrix multiplication")
         # return _spmm(input, other, input_value, reduce, transpose)
-        output = input.to_dense() @ other
+        if input_value is not None:
+            dense = input.to_dense(input_value)
+        else:
+            dense = input.to_dense()
+
+        if transpose:
+            output = dense.t() @ other
+        else:
+            output = dense @ other
         return output
 
     if reduce not in ['sum', 'add']:

@@ -210,9 +210,9 @@ class RGATConv(MessagePassing):
             x_j = x_j.reshape([-1, 1, w.shape[1], w.shape[2]])
             w = paddle.index_select(w, index=edge_type, axis=0)
             outi = paddle.einsum('abcd,acde->ace', x_i, w)
-            outi = outi.reshape([-1, self.heads * self.out_channels])
+            outi = outi.contiguous().reshape([-1, self.heads * self.out_channels])
             outj = paddle.einsum('abcd,acde->ace', x_j, w)
-            outj = outj.reshape([-1, self.heads * self.out_channels])
+            outj = outj.contiguous().reshape([-1, self.heads * self.out_channels])
         else:
             if self.num_bases is None:
                 w = self.weight

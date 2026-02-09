@@ -136,7 +136,13 @@ def is_sparse(src: Any) -> bool:
     Args:
         src (Any): The input object to be checked.
     """
-    return is_paddle_sparse_tensor(src) or isinstance(src, SparseTensor)
+    if is_paddle_sparse_tensor(src):
+        return True
+    if isinstance(src, SparseTensor):
+        return True
+    if hasattr(src, '__class__') and src.__class__.__name__ == 'MockPaddleCSCTensor':
+        return True
+    return False
 
 
 def to_paddle_coo_tensor(
@@ -314,8 +320,38 @@ def to_paddle_csc_tensor(
     """
     if (not hasattr(paddle, 'sparse_csc')
             or not hasattr(paddle.sparse, 'sparse_csc_tensor')):
-        from paddle_geometric.typing import MockPaddleCSCTensor
-        return MockPaddleCSCTensor(edge_index, edge_attr, size)
+        from paddle_geometric.typing import WITH_PADDLE_SPARSE
+        if WITH_PADDLE_SPARSE:
+            # 使用paddle_sparse的SparseTensor
+            from paddle_sparse import SparseTensor
+            if size is None:
+                size = int(edge_index.max()) + 1
+            if isinstance(size, (tuple, list)):
+                num_src_nodes, num_dst_nodes = size
+                if num_src_nodes is None:
+                    num_src_nodes = int(edge_index[0].max()) + 1
+                if num_dst_nodes is None:
+                    num_dst_nodes = int(edge_index[1].max()) + 1
+                size = (num_src_nodes, num_dst_nodes)
+            else:
+                size = (size, size)
+            
+            if not is_coalesced:
+                edge_index, edge_attr = coalesce(edge_index, edge_attr, max(size), sort_by_row=False)
+            
+            if edge_attr is None:
+                edge_attr = paddle.ones([edge_index.shape[1]], device=edge_index.place)
+
+            sparse_tensor = SparseTensor(
+                row=edge_index[0],
+                col=edge_index[1],
+                value=edge_attr,
+                sparse_sizes=size
+            )
+            return sparse_tensor
+        else:
+            from paddle_geometric.typing import MockPaddleCSCTensor
+            return MockPaddleCSCTensor(edge_index, edge_attr, size)
 
     if size is None:
         size = int(edge_index.max()) + 1

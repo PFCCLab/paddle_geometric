@@ -128,8 +128,8 @@ class PNAConv(MessagePassing):
                 modules += [Linear(self.F_in, self.F_in)]
             self.pre_nns.append(Sequential(*modules))
 
-            in_channels = (len(aggregators) * len(scalers) + 1) * self.F_in
-            modules = [Linear(in_channels, self.F_out)]
+            post_in_channels = (len(aggregators) * len(scalers) + 1) * self.F_in
+            modules = [Linear(post_in_channels, self.F_out)]
             for _ in range(post_layers - 1):
                 modules += [activation_resolver(act, **(act_kwargs or {}))]
                 modules += [Linear(self.F_out, self.F_out)]

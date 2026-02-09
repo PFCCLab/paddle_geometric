@@ -206,7 +206,7 @@ class EGConv(MessagePassing):
                                        dim_size=dim_size, reduce='mean')
                 out = mean_squares - mean * mean
                 if aggr == 'std':
-                    out = paddle.sqrt(out.clip(min=1e-5))
+                    out = out.clip(min=1e-5).sqrt()
             else:
                 out = scatter(inputs, index, dim=0, dim_size=dim_size,
                               reduce=aggr)
@@ -220,11 +220,6 @@ class EGConv(MessagePassing):
         if len(self.aggregators) > 1 and 'symnorm' in self.aggregators:
             if isinstance(adj_t, SparseTensor):
                 adj_t_2 = adj_t.set_value(None)
-            elif is_paddle_sparse_tensor(adj_t):
-                values = adj_t.values()
-                if values is not None:
-                    adj_t_2 = set_sparse_value(adj_t,
-                                               paddle.ones_like(values))
             else:
                 adj_t_2 = adj_t.clone()
                 if hasattr(adj_t_2, 'values'):
@@ -239,7 +234,7 @@ class EGConv(MessagePassing):
                 mean_sq = spmm(adj_t_2, x * x, reduce='mean')
                 out = mean_sq - mean * mean
                 if aggr == 'std':
-                    out = paddle.sqrt(out.clip(min=1e-5))
+                    out = paddle.sqrt(out.relu() + 1e-5)
             else:
                 out = spmm(adj_t_2, x, reduce=aggr)
 

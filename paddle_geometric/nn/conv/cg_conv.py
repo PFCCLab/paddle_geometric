@@ -87,8 +87,7 @@ class CGConv(MessagePassing):
                 if hasattr(self.bn, '_mean'):
                     self.bn._mean.set_value(paddle.zeros_like(self.bn._mean))
                 if hasattr(self.bn, '_variance'):
-                    self.bn._variance.set_value(
-                        paddle.ones_like(self.bn._variance))
+                    self.bn._variance.set_value(paddle.ones_like(self.bn._variance))
 
     def forward(self, x: Union[Tensor, PairTensor], edge_index: Adj,
                 edge_attr: OptTensor = None) -> Tensor:
@@ -99,20 +98,19 @@ class CGConv(MessagePassing):
         # propagate_type: (x: PairTensor, edge_attr: OptTensor)
         out = self.propagate(edge_index, x=x, edge_attr=edge_attr)
 
-        if self.bn is not None:
-            out = self.bn(out)
-
+        out = out if self.bn is None else self.bn(out)
         out = out + x[1]
-
         return out
 
     def message(self, x_i, x_j, edge_attr: OptTensor) -> Tensor:
         if edge_attr is None:
-            z = paddle.concat([x_i, x_j], axis=-1)
+            # When no edge attributes, we need to pad with zeros to match the expected dimension
+            batch_size = x_i.shape[0]
+            zero_attr = paddle.zeros([batch_size, self.dim], dtype=x_i.dtype)
+            z = paddle.concat([x_i, x_j, zero_attr], axis=-1)
         else:
             z = paddle.concat([x_i, x_j, edge_attr], axis=-1)
-
-        return F.sigmoid(self.lin_f(z)) * F.softplus(self.lin_s(z))
+        return self.lin_f(z).sigmoid() * F.softplus(self.lin_s(z))
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.channels}, dim={self.dim})'

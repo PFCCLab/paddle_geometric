@@ -3,10 +3,11 @@ from typing import Optional
 
 import paddle
 from paddle import Tensor
-from paddle.nn import ELU, BatchNorm1D as BN, Conv1D as Conv, Linear as L, Sequential as S
+from paddle.nn import ELU, BatchNorm1D as BN, Conv1D as Conv, Sequential as S
 
 import paddle_geometric.typing
 from paddle_geometric.nn import Reshape
+from paddle_geometric.nn.dense.linear import Linear as L
 from paddle_geometric.nn.inits import reset
 
 try:

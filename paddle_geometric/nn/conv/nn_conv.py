@@ -116,6 +116,9 @@ class NNConv(MessagePassing):
         return out
 
     def message(self, x_j: Tensor, edge_attr: Tensor) -> Tensor:
+        if edge_attr is None:
+            # Return zeros if no edge attributes
+            return paddle.zeros_like(x_j)
         weight = self.nn(edge_attr)
         weight = weight.reshape([-1, self.in_channels_l, self.out_channels])
         return paddle.matmul(x_j.unsqueeze(1), weight).squeeze(1)

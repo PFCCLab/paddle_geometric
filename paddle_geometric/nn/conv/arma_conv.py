@@ -105,7 +105,7 @@ class ARMAConv(MessagePassing):
         return out.mean(axis=-3)
 
     def message(self, x_j: Tensor, edge_weight: Tensor) -> Tensor:
-        return edge_weight.reshape([-1, 1]) * x_j
+        return x_j if edge_weight is None else edge_weight.reshape([-1, 1]) * x_j
 
     def message_and_aggregate(self, adj_t: Adj, x: Tensor) -> Tensor:
         return spmm(adj_t, x, reduce=self.aggr)

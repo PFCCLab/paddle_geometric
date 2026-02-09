@@ -131,7 +131,7 @@ class TransformerConv(MessagePassing):
         if edge_dim is not None:
             self.lin_edge = Linear(edge_dim, heads * out_channels, bias=False)
         else:
-            self.lin_edge = None
+            self.add_parameter('lin_edge', None)
 
         if concat:
             self.lin_skip = Linear(in_channels[1], heads * out_channels,
@@ -139,13 +139,13 @@ class TransformerConv(MessagePassing):
             if self.beta:
                 self.lin_beta = Linear(3 * heads * out_channels, 1, bias=False)
             else:
-                self.lin_beta = None
+                self.add_parameter('lin_beta', None)
         else:
             self.lin_skip = Linear(in_channels[1], out_channels, bias=bias)
             if self.beta:
                 self.lin_beta = Linear(3 * out_channels, 1, bias=False)
             else:
-                self.lin_beta = None
+                self.add_parameter('lin_beta', None)
 
         self.reset_parameters()
 

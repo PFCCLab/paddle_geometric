@@ -75,14 +75,13 @@ class HGTConv(MessagePassing):
         self.v_rel = HeteroLinear(dim, dim, num_types, bias=False,
                                   is_sorted=True)
 
-        self.skip = ParameterDict({
+        self.skip = {
             node_type: self.create_parameter(shape=[1])
             for node_type in self.node_types
-        })
+        }
 
-        self.p_rel = ParameterDict()
+        self.p_rel = {}
         for edge_type in self.edge_types:
-            edge_type = '__'.join(edge_type)
             self.p_rel[edge_type] = self.create_parameter(shape=[1, heads])
 
         self.reset_parameters()

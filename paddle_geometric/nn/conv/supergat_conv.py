@@ -219,7 +219,7 @@ class SuperGATConv(MessagePassing):
             )
 
             self.att_x = paddle.concat([pos_att, neg_att], axis=0)
-            self.att_y = paddle.zeros_like(self.att_x)
+            self.att_y = paddle.zeros([self.att_x.shape[0]], dtype=self.att_x.dtype)
             self.att_y[:pos_edge_index.shape[1]] = 1.
 
         if self.concat:

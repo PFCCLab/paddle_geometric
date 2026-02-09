@@ -30,7 +30,7 @@ def reset_weight_(weight: paddle.Tensor, in_channels: int,
         inits.glorot(weight)
     elif initializer == "uniform":
         bound = 1.0 / math.sqrt(in_channels)
-        paddle.nn.init.uniform_(weight.data, -bound, bound)
+        paddle.nn.init.uniform_(weight, -bound, bound)
     elif initializer == "kaiming_uniform":
         inits.kaiming_uniform(weight, fan=in_channels, a=math.sqrt(5))
     elif initializer is None:

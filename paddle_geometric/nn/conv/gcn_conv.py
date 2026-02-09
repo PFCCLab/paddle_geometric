@@ -49,8 +49,13 @@ def gcn_norm(  # noqa: F811
         deg = paddle_sparse.sum(adj_t, dim=1)
         deg_inv_sqrt = deg.pow(-0.5)
         deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), 0., deg_inv_sqrt)
-        adj_t = paddle_sparse.mul(adj_t, deg_inv_sqrt.reshape([-1, 1]))
-        adj_t = paddle_sparse.mul(adj_t, deg_inv_sqrt.reshape([1, -1]))
+
+        edge_index_norm, value_norm = to_edge_index(adj_t)
+        row, col = edge_index_norm[0], edge_index_norm[1]
+        value_norm = deg_inv_sqrt[row] * value_norm * deg_inv_sqrt[col]
+
+        from paddle_geometric.utils import to_paddle_csc_tensor
+        adj_t = to_paddle_csc_tensor(edge_index_norm, value_norm, (num_nodes, num_nodes))
 
         return adj_t
 
@@ -69,7 +74,7 @@ def gcn_norm(  # noqa: F811
         deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), 0., deg_inv_sqrt)
         value = deg_inv_sqrt[row] * value * deg_inv_sqrt[col]
 
-        return set_sparse_value(adj_t, value), None
+        return edge_index, value
 
     assert flow in ['source_to_target', 'target_to_source']
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
@@ -211,6 +216,10 @@ class GCNConv(MessagePassing):
                              f"Please try other layers such as 'SAGEConv' or "
                              f"'GraphConv' instead")
 
+        is_sparse_x = False
+        if is_paddle_sparse_tensor(x):
+            is_sparse_x = True
+            x = x.to_dense()
 
         if self.normalize:
             if isinstance(edge_index, Tensor):
