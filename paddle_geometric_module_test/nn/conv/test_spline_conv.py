@@ -15,12 +15,12 @@ def test_spline_conv():
     x1 = paddle.randn(shape=[4, 8])
     x2 = paddle.randn(shape=[2, 16])
     edge_index = paddle.to_tensor([[0, 1, 2, 3], [0, 0, 1, 1]])
-    value = paddle.rand(edge_index.shape[1], 3)
+    value = paddle.rand([edge_index.shape[1], 3])
 
     conv = SplineConv(8, 32, dim=3, kernel_size=5)
     assert str(conv) == 'SplineConv(8, 32, dim=3)'
     out = conv(x1, edge_index, value)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, value, size=(4, 4)), out)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -40,11 +40,11 @@ def test_spline_conv():
     assert str(conv) == 'SplineConv((8, 16), 32, dim=3)'
 
     out1 = conv((x1, x2), edge_index, value)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, value, (4, 2)), out1)
 
     out2 = conv((x1, None), edge_index, value, (4, 2))
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, value, (4, 2))
@@ -71,14 +71,14 @@ def test_lazy_spline_conv():
     x1 = paddle.randn(shape=[4, 8])
     x2 = paddle.randn(shape=[2, 16])
     edge_index = paddle.to_tensor([[0, 1, 2, 3], [0, 0, 1, 1]])
-    value = paddle.rand(edge_index.shape[1], 3)
+    value = paddle.rand([edge_index.shape[1], 3])
 
     conv = SplineConv(-1, 32, dim=3, kernel_size=5)
     assert str(conv) == 'SplineConv(-1, 32, dim=3)'
     out = conv(x1, edge_index, value)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     conv = SplineConv((-1, -1), 32, dim=3, kernel_size=5)
     assert str(conv) == 'SplineConv((-1, -1), 32, dim=3)'
     out = conv((x1, x2), edge_index, value)
-    assert out.shape== (2, 32)
+    assert tuple(out.shape)== (2, 32)

@@ -5,7 +5,14 @@ from paddle import Tensor
 from paddle.nn import Layer
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.inits import reset
-from paddle_geometric.typing import Adj, OptTensor, PairOptTensor, PairTensor, SparseTensor
+from paddle_geometric.typing import (
+    Adj,
+    OptTensor,
+    PairOptTensor,
+    PairTensor,
+    SparseTensor,
+    paddle_sparse,
+)
 from paddle_geometric.utils import add_self_loops, remove_self_loops
 
 
@@ -16,15 +23,43 @@ class PointNetConv(MessagePassing):
     Feature Learning on Point Sets in a Metric Space"
     <https://arxiv.org/abs/1706.02413>`_ papers.
 
+    .. math::
+        \mathbf{x}^{\prime}_i = \gamma_{\mathbf{\Theta}} \left( \max_{j \in
+        \mathcal{N}(i) \cup \{ i \}} h_{\mathbf{\Theta}} ( \mathbf{x}_j,
+        \mathbf{p}_j - \mathbf{p}_i) \right),
+
+    where :math:`\gamma_{\mathbf{\Theta}}` and :math:`h_{\mathbf{\Theta}}`
+    denote neural networks, *i.e.* MLPs, and
+    :math:`\mathbf{P} \in \mathbb{R}^{N \times D}` defines the position of
+    each point.
+
     Args:
-        local_nn (Callable, optional): A neural network that maps node features
-            and relative spatial coordinates of shape `[-1, in_channels + num_dimensions]`
-            to shape `[-1, out_channels]`.
-        global_nn (Callable, optional): A neural network that maps aggregated node
-            features of shape `[-1, out_channels]` to shape `[-1, final_out_channels]`.
-        add_self_loops (bool, optional): If set to `False`, will not add self-loops to the input graph.
-            (default: `True`)
-        **kwargs (optional): Additional arguments of `paddle_geometric.nn.conv.MessagePassing`.
+        local_nn (Callable, optional): A neural network
+            :math:`h_{\mathbf{\Theta}}` that maps node features :obj:`x` and
+            relative spatial coordinates :obj:`pos_j - pos_i` of shape
+            :obj:`[-1, in_channels + num_dimensions]` to shape
+            :obj:`[-1, out_channels]`, *e.g.*, defined by
+            :class:`paddle.nn.Sequential`. (default: :obj:`None`)
+        global_nn (Callable, optional): A neural network
+            :math:`\gamma_{\mathbf{\Theta}}` that maps aggregated node features
+            of shape :obj:`[-1, out_channels]` to shape :obj:`[-1,
+            final_out_channels]`, *e.g.*, defined by
+            :class:`paddle.nn.Sequential`. (default: :obj:`None`)
+        add_self_loops (bool, optional): If set to :obj:`False`, will not add
+            self-loops to the input graph. (default: :obj:`True`)
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
+          if bipartite,
+          positions :math:`(|\mathcal{V}|, 3)` or
+          :math:`((|\mathcal{V_s}|, 3), (|\mathcal{V_t}|, 3))` if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V}_t|, F_{out})` if bipartite
 
     """
     def __init__(self, local_nn: Optional[Callable] = None,
@@ -63,7 +98,7 @@ class PointNetConv(MessagePassing):
                 edge_index, _ = add_self_loops(
                     edge_index, num_nodes=min(pos[0].shape[0], pos[1].shape[0]))
             elif isinstance(edge_index, SparseTensor):
-                edge_index = edge_index.set_diag()
+                edge_index = paddle_sparse.set_diag(edge_index)
 
         # propagate_type: (x: PairOptTensor, pos: PairTensor)
         out = self.propagate(edge_index, x=x, pos=pos)

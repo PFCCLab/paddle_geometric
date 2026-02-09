@@ -17,14 +17,14 @@ def test_wl_conv():
 
     out = conv(x1, edge_index)
     assert out.tolist() == [0, 1, 1, 0]
-    assert paddle.equal(conv(x2, edge_index), out)
-    assert paddle.equal(conv(x1, adj1.t()), out)
-    assert paddle.equal(conv(x2, adj1.t()), out)
+    assert paddle.equal(conv(x2, edge_index), out).all()
+    assert paddle.equal(conv(x1, adj1.t()), out).all()
+    assert paddle.equal(conv(x2, adj1.t()), out).all()
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj2 = SparseTensor.from_edge_index(edge_index, sparse_sizes=(4, 4))
-        assert paddle.equal(conv(x1, adj2.t()), out)
-        assert paddle.equal(conv(x2, adj2.t()), out)
+        assert paddle.equal(conv(x1, adj2.t()), out).all()
+        assert paddle.equal(conv(x2, adj2.t()), out).all()
 
     assert conv.histogram(out).tolist() == [[2, 2]]
     assert paddle.allclose(conv.histogram(out, norm=True),

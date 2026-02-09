@@ -67,15 +67,15 @@ class MixHopConv(MessagePassing):
         self.add_self_loops = add_self_loops
 
         self.lins = LayerList([
-            Linear(in_channels, out_channels, bias_attr=False)
+            Linear(in_channels, out_channels, bias=False)
             if p in powers else paddle.nn.Identity()
             for p in range(max(powers) + 1)
         ])
 
         if bias:
-            self.bias = self.create_parameter([len(powers) * out_channels], is_bias=True)
+            self.bias = self.create_parameter([len(powers) * out_channels])
         else:
-            self.register_buffer('bias', None)
+            self.bias = None
 
         self.reset_parameters()
 

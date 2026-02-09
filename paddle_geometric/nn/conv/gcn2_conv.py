@@ -1,13 +1,13 @@
 import math
+from math import log
 from typing import Optional
 
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer, Linear
-from paddle.nn.initializer import XavierUniform
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.conv.gcn_conv import gcn_norm
+from paddle_geometric.nn.inits import glorot
 from paddle_geometric.typing import Adj, OptPairTensor, OptTensor, SparseTensor
 from paddle_geometric.utils import spmm
 
@@ -16,6 +16,57 @@ class GCN2Conv(MessagePassing):
     r"""The graph convolutional operator with initial residual connections and
     identity mapping (GCNII) from the `"Simple and Deep Graph Convolutional
     Networks" <https://arxiv.org/abs/2007.02133>`_ paper.
+
+    .. math::
+        \mathbf{X}^{\prime} = \left( (1 - \alpha) \mathbf{\hat{P}}\mathbf{X} +
+        \alpha \mathbf{X^{(0)}}\right) \left( (1 - \beta) \mathbf{I} + \beta
+        \mathbf{\Theta} \right)
+
+    with :math:`\mathbf{\hat{P}} = \mathbf{\hat{D}}^{-1/2} \mathbf{\hat{A}}
+    \mathbf{\hat{D}}^{-1/2}`, where
+    :math:`\mathbf{\hat{A}} = \mathbf{A} + \mathbf{I}` denotes the adjacency
+    matrix with inserted self-loops and
+    :math:`\hat{D}_{ii} = \sum_{j=0} \hat{A}_{ij}` its diagonal degree matrix,
+    and :math:`\mathbf{X}^{(0)}` being the initial feature representation.
+    Here, :math:`\alpha` models the strength of the initial residual
+    connection, while :math:`\beta` models the strength of the identity
+    mapping.
+    The adjacency matrix can include other values than :obj:`1` representing
+    edge weights via the optional :obj:`edge_weight` tensor.
+
+    Args:
+        channels (int): Size of each input and output sample.
+        alpha (float): The strength of the initial residual connection
+            :math:`\alpha`.
+        theta (float, optional): The hyperparameter :math:`\theta` to compute
+            the strength of the identity mapping
+            :math:`\beta = \log \left( \frac{\theta}{\ell} + 1 \right)`.
+            (default: :obj:`None`)
+        layer (int, optional): The layer :math:`\ell` in which this module is
+            executed. (default: :obj:`None`)
+        shared_weights (bool, optional): If set to :obj:`False`, will use
+            different weight matrices for the smoothed representation and the
+            initial residual ("GCNII*"). (default: :obj:`True`)
+        cached (bool, optional): If set to :obj:`True`, the layer will cache
+            the computation of :math:`\mathbf{\hat{D}}^{-1/2} \mathbf{\hat{A}}
+            \mathbf{\hat{D}}^{-1/2}` on first execution, and will use the
+            cached version for further executions.
+            This parameter should only be set to :obj:`True` in transductive
+            learning scenarios. (default: :obj:`False`)
+        normalize (bool, optional): Whether to add self-loops and apply
+            symmetric normalization. (default: :obj:`True`)
+        add_self_loops (bool, optional): If set to :obj:`False`, will not add
+            self-loops to the input graph. (default: :obj:`True`)
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F)`,
+          initial node features :math:`(|\mathcal{V}|, F)`,
+          edge indices :math:`(2, |\mathcal{E}|)`,
+          edge weights :math:`(|\mathcal{E}|)` *(optional)*
+        - **output:** node features :math:`(|\mathcal{V}|, F)`
     """
 
     def __init__(self, channels: int, alpha: float, theta: float = None,
@@ -39,25 +90,20 @@ class GCN2Conv(MessagePassing):
         self._cached_edge_index = None
         self._cached_adj_t = None
 
-        self.weight1 = self.create_parameter(
-            shape=[channels, channels],
-            default_initializer=XavierUniform()
-        )
+        self.weight1 = self.create_parameter(shape=[channels, channels])
 
         if shared_weights:
             self.weight2 = None
         else:
-            self.weight2 = self.create_parameter(
-                shape=[channels, channels],
-                default_initializer=XavierUniform()
-            )
+            self.weight2 = self.create_parameter(shape=[channels, channels])
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        paddle.nn.initializer.XavierUniform()(self.weight1)
+        super().reset_parameters()
+        glorot(self.weight1)
         if self.weight2 is not None:
-            paddle.nn.initializer.XavierUniform()(self.weight2)
+            glorot(self.weight2)
         self._cached_edge_index = None
         self._cached_adj_t = None
 
@@ -69,7 +115,7 @@ class GCN2Conv(MessagePassing):
                 cache = self._cached_edge_index
                 if cache is None:
                     edge_index, edge_weight = gcn_norm(
-                        edge_index, edge_weight, x.shape[0], False,
+                        edge_index, edge_weight, x.shape[self.node_dim], False,
                         self.add_self_loops, self.flow, dtype=x.dtype)
                     if self.cached:
                         self._cached_edge_index = (edge_index, edge_weight)
@@ -80,7 +126,7 @@ class GCN2Conv(MessagePassing):
                 cache = self._cached_adj_t
                 if cache is None:
                     edge_index = gcn_norm(
-                        edge_index, edge_weight, x.shape[0], False,
+                        edge_index, edge_weight, x.shape[self.node_dim], False,
                         self.add_self_loops, self.flow, dtype=x.dtype)
                     if self.cached:
                         self._cached_adj_t = edge_index

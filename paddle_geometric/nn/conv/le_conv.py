@@ -55,13 +55,14 @@ class LEConv(MessagePassing):
         if isinstance(in_channels, int):
             in_channels = (in_channels, in_channels)
 
-        self.lin1 = Linear(in_channels[0], out_channels, bias_attr=bias)
-        self.lin2 = Linear(in_channels[1], out_channels, bias_attr=False)
-        self.lin3 = Linear(in_channels[1], out_channels, bias_attr=bias)
+        self.lin1 = Linear(in_channels[0], out_channels, bias=bias)
+        self.lin2 = Linear(in_channels[1], out_channels, bias=False)
+        self.lin3 = Linear(in_channels[1], out_channels, bias=bias)
 
         self.reset_parameters()
 
     def reset_parameters(self):
+        super().reset_parameters()
         self.lin1.reset_parameters()
         self.lin2.reset_parameters()
         self.lin3.reset_parameters()
@@ -83,7 +84,7 @@ class LEConv(MessagePassing):
     def message(self, a_j: Tensor, b_i: Tensor,
                 edge_weight: OptTensor) -> Tensor:
         out = a_j - b_i
-        return out if edge_weight is None else out * edge_weight.unsqueeze(-1)
+        return out if edge_weight is None else out * edge_weight.reshape([-1, 1])
 
     def __repr__(self) -> str:
         return (f'{self.__class__.__name__}({self.in_channels}, '

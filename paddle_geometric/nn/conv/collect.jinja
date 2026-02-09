@@ -1,12 +1,17 @@
 from typing import List, NamedTuple, Optional, Union
 
-import torch
-from torch import Tensor
+import paddle
+from paddle import Tensor
 
-from torch_geometric import EdgeIndex
-from torch_geometric.index import ptr2index
-from torch_geometric.utils import is_torch_sparse_tensor
-from torch_geometric.typing import SparseTensor
+from paddle_geometric import EdgeIndex
+from paddle_geometric.index import ptr2index
+from paddle_geometric.utils import is_paddle_sparse_tensor, to_edge_index
+from paddle_geometric.typing import SparseTensor
+
+
+def _is_scripting():
+    is_scripting = getattr(paddle.jit, "is_scripting", None)
+    return bool(is_scripting()) if callable(is_scripting) else False
 
 
 class CollectArgs(NamedTuple):
@@ -32,32 +37,41 @@ def {{collect_name}}(
 
     # Collect special arguments:
     if isinstance(edge_index, Tensor):
-        if is_torch_sparse_tensor(edge_index):
+        if is_paddle_sparse_tensor(edge_index):
 {%- if 'edge_index' in collect_param_dict %}
             raise ValueError("Cannot collect 'edge_indices' for sparse matrices")
 {%- endif %}
             adj_t = edge_index
-            if adj_t.layout == torch.sparse_coo:
+            if hasattr(adj_t, 'is_sparse_coo') and adj_t.is_sparse_coo():
                 edge_index_i = adj_t.indices()[0]
                 edge_index_j = adj_t.indices()[1]
                 ptr = None
-            elif adj_t.layout == torch.sparse_csr:
-                ptr = adj_t.crow_indices()
-                edge_index_j = adj_t.col_indices()
+            elif hasattr(adj_t, 'is_sparse_csr') and adj_t.is_sparse_csr():
+                ptr = adj_t.crows()
+                edge_index_j = adj_t.cols()
                 edge_index_i = ptr2index(ptr, output_size=edge_index_j.numel())
             else:
-                raise ValueError(f"Received invalid layout '{adj_t.layout}'")
+                edge_index, _value = to_edge_index(adj_t)
+                edge_index_i = edge_index[0]
+                edge_index_j = edge_index[1]
+                ptr = None
 
 {%- if 'edge_weight' in collect_param_dict %}
-            if edge_weight is None:
+            if edge_weight is None and hasattr(adj_t, 'values'):
                 edge_weight = adj_t.values()
+            elif edge_weight is None and '_value' in locals():
+                edge_weight = _value
 {%- elif 'edge_attr' in collect_param_dict %}
-            if edge_attr is None:
+            if edge_attr is None and hasattr(adj_t, 'values'):
                 _value = adj_t.values()
                 edge_attr = None if _value.dim() == 1 else _value
+            elif edge_attr is None and '_value' in locals():
+                edge_attr = None if _value is None or _value.ndim == 1 else _value
 {%- elif 'edge_type' in collect_param_dict %}
-            if edge_type is None:
+            if edge_type is None and hasattr(adj_t, 'values'):
                 edge_type = adj_t.values()
+            elif edge_type is None and '_value' in locals():
+                edge_type = _value
 {%- endif %}
 
         else:
@@ -68,7 +82,7 @@ def {{collect_name}}(
             edge_index_j = edge_index[j]
 
             ptr = None
-            if not torch.jit.is_scripting() and isinstance(edge_index, EdgeIndex):
+            if not _is_scripting() and isinstance(edge_index, EdgeIndex):
                 if i == 0 and edge_index.is_sorted_by_row:
                   (ptr, _), _ = edge_index.get_csr()
                 elif i == 1 and edge_index.is_sorted_by_col:
@@ -87,7 +101,7 @@ def {{collect_name}}(
             edge_weight = _value
 {%- elif 'edge_attr' in collect_param_dict %}
         if edge_attr is None:
-            edge_attr = None if _value is None or _value.dim() == 1 else _value
+            edge_attr = None if _value is None or _value.ndim == 1 else _value
 {%- elif 'edge_type' in collect_param_dict %}
         if edge_type is None:
             edge_type = _value
@@ -98,15 +112,15 @@ def {{collect_name}}(
 
 {%- if 'edge_weight' in collect_param_dict and
     collect_param_dict['edge_weight'].type_repr.endswith('Tensor') %}
-    if torch.jit.is_scripting():
+    if _is_scripting():
         assert edge_weight is not None
 {%- elif 'edge_attr' in collect_param_dict and
     collect_param_dict['edge_attr'].type_repr.endswith('Tensor') %}
-    if torch.jit.is_scripting():
+    if _is_scripting():
         assert edge_attr is not None
 {%- elif 'edge_type' in collect_param_dict and
     collect_param_dict['edge_type'].type_repr.endswith('Tensor') %}
-    if torch.jit.is_scripting():
+    if _is_scripting():
         assert edge_type is not None
 {%- endif %}
 

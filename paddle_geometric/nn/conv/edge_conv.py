@@ -18,6 +18,13 @@ class EdgeConv(MessagePassing):
     r"""The edge convolutional operator from the `"Dynamic Graph CNN for
     Learning on Point Clouds" <https://arxiv.org/abs/1801.07829>`_ paper.
 
+    .. math::
+        \mathbf{x}^{\prime}_i = \sum_{j \in \mathcal{N}(i)}
+        h_{\mathbf{\Theta}}(\mathbf{x}_i \, \Vert \,
+        \mathbf{x}_j - \mathbf{x}_i),
+
+    where :math:`h_{\mathbf{\Theta}}` denotes a neural network, *.i.e.* a MLP.
+
     Args:
         nn (paddle.nn.Layer): A neural network :math:`h_{\mathbf{\Theta}}` that
             maps pair-wise concatenated node features :obj:`x` of shape
@@ -26,6 +33,17 @@ class EdgeConv(MessagePassing):
         aggr (str, optional): The aggregation scheme to use
             (:obj:`"add"`, :obj:`"mean"`, :obj:`"max"`).
             (default: :obj:`"max"`)
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V}|, F_{in}), (|\mathcal{V}|, F_{in}))`
+          if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V}_t|, F_{out})` if bipartite
     """
 
     def __init__(self, nn: Callable, aggr: str = 'max', **kwargs):
@@ -34,11 +52,13 @@ class EdgeConv(MessagePassing):
         self.reset_parameters()
 
     def reset_parameters(self):
+        super().reset_parameters()
         reset(self.nn)
 
     def forward(self, x: Union[Tensor, PairTensor], edge_index: Adj) -> Tensor:
         if isinstance(x, Tensor):
             x = (x, x)
+        # propagate_type: (x: PairTensor)
         return self.propagate(edge_index, x=x)
 
     def message(self, x_i: Tensor, x_j: Tensor) -> Tensor:
@@ -90,7 +110,7 @@ class DynamicEdgeConv(MessagePassing):
             x = (x, x)
 
         if x[0].ndim != 2:
-            raise ValueError("Static graphs are not supported in DynamicEdgeConv")
+            raise ValueError("Static graphs not supported in DynamicEdgeConv")
 
         b: PairOptTensor = (None, None)
         if isinstance(batch, Tensor):
@@ -100,6 +120,7 @@ class DynamicEdgeConv(MessagePassing):
             b = (batch[0], batch[1])
 
         edge_index = knn(x[0], x[1], self.k, b[0], b[1]).flip([0])
+        # propagate_type: (x: PairTensor)
         return self.propagate(edge_index, x=x)
 
     def message(self, x_i: Tensor, x_j: Tensor) -> Tensor:

@@ -27,7 +27,7 @@ def test_transformer_conv(edge_dim, concat):
     assert str(conv) == f'TransformerConv(8, {out_channels}, heads={heads})'
 
     out = conv(x1, edge_index, edge_attr)
-    assert out.shape== (4, out_channels * (heads if concat else 1))
+    assert tuple(out.shape) == (4, out_channels * (heads if concat else 1))
     assert paddle.allclose(conv(x1, adj1.t(), edge_attr), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -59,8 +59,8 @@ def test_transformer_conv(edge_dim, concat):
     # Test `return_attention_weights`.
     result = conv(x1, edge_index, edge_attr, return_attention_weights=True)
     assert paddle.allclose(result[0], out)
-    assert result[1][0].shape== (2, 4)
-    assert result[1][1].shape== (4, 2)
+    assert tuple(result[1][0].shape) == (2, 4)
+    assert tuple(result[1][1].shape) == (4, 2)
     assert result[1][1].min() >= 0 and result[1][1].max() <= 1
     assert conv._alpha is None
 
@@ -89,8 +89,8 @@ def test_transformer_conv(edge_dim, concat):
         jit = paddle.jit.to_static(MyModule())
         result = jit(x1, edge_index, edge_attr)
         assert paddle.allclose(result[0], out)
-        assert result[1][0].shape== (2, 4)
-        assert result[1][1].shape== (4, 2)
+        assert tuple(result[1][0].shape) == (2, 4)
+        assert tuple(result[1][1].shape) == (4, 2)
         assert result[1][1].min() >= 0 and result[1][1].max() <= 1
         assert conv._alpha is None
 
@@ -124,7 +124,7 @@ def test_transformer_conv(edge_dim, concat):
                          f'heads={heads})')
 
     out = conv((x1, x2), edge_index, edge_attr)
-    assert out.shape== (2, out_channels * (heads if concat else 1))
+    assert tuple(out.shape) == (2, out_channels * (heads if concat else 1))
     assert paddle.allclose(conv((x1, x2), adj1.t(), edge_attr), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

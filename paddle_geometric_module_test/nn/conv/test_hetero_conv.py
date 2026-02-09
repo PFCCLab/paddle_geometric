@@ -32,7 +32,7 @@ def test_hetero_conv(aggr):
     data['paper', 'author'].edge_index = get_random_edge_index(50, 30, 100)
     data['paper', 'author'].edge_attr = paddle.randn(shape=[100, 3])
     data['author', 'paper'].edge_index = get_random_edge_index(30, 50, 100)
-    data['paper', 'paper'].edge_weight = paddle.rand(200)
+    data['paper', 'paper'].edge_weight = paddle.rand([200])
 
     # Unspecified edge types should be ignored:
     data['author', 'author'].edge_index = get_random_edge_index(30, 30, 100)
@@ -61,14 +61,14 @@ def test_hetero_conv(aggr):
 
     assert len(out_dict) == 2
     if aggr == 'cat':
-        assert out_dict['paper'].shape== (50, 128)
-        assert out_dict['author'].shape== (30, 64)
+        assert tuple(out_dict['paper'].shape)== (50, 128)
+        assert tuple(out_dict['author'].shape)== (30, 64)
     elif aggr is not None:
-        assert out_dict['paper'].shape== (50, 64)
-        assert out_dict['author'].shape== (30, 64)
+        assert tuple(out_dict['paper'].shape)== (50, 64)
+        assert tuple(out_dict['author'].shape)== (30, 64)
     else:
-        assert out_dict['paper'].shape== (50, 2, 64)
-        assert out_dict['author'].shape== (30, 1, 64)
+        assert tuple(out_dict['paper'].shape)== (50, 2, 64)
+        assert tuple(out_dict['author'].shape)== (30, 1, 64)
 
 
 def test_gcn2_hetero_conv():
@@ -77,7 +77,7 @@ def test_gcn2_hetero_conv():
     data['author'].x = paddle.randn(shape=[30, 64])
     data['paper', 'paper'].edge_index = get_random_edge_index(50, 50, 200)
     data['author', 'author'].edge_index = get_random_edge_index(30, 30, 100)
-    data['paper', 'paper'].edge_weight = paddle.rand(200)
+    data['paper', 'paper'].edge_weight = paddle.rand([200])
 
     conv = HeteroConv({
         ('paper', 'to', 'paper'): GCN2Conv(32, alpha=0.1),
@@ -92,8 +92,8 @@ def test_gcn2_hetero_conv():
     )
 
     assert len(out_dict) == 2
-    assert out_dict['paper'].shape== (50, 32)
-    assert out_dict['author'].shape== (30, 64)
+    assert tuple(out_dict['paper'].shape)== (50, 32)
+    assert tuple(out_dict['author'].shape)== (30, 64)
 
 
 class CustomConv(MessagePassing):
@@ -105,7 +105,7 @@ class CustomConv(MessagePassing):
         return self.propagate(edge_index, x=x, y=y, z=z)
 
     def message(self, x_j, y_j, z_j):
-        return self.lin(paddle.concat([x_j, y_j, z_j], dim=-1))
+        return self.lin(paddle.concat([x_j, y_j, z_j], axis=-1))
 
 
 def test_hetero_conv_with_custom_conv():
@@ -129,8 +129,8 @@ def test_hetero_conv_with_custom_conv():
         z_dict=data.z_dict,
     )
     assert len(out_dict) == 2
-    assert out_dict['paper'].shape== (50, 64)
-    assert out_dict['author'].shape== (30, 64)
+    assert tuple(out_dict['paper'].shape)== (50, 64)
+    assert tuple(out_dict['author'].shape)== (30, 64)
 
 
 class MessagePassingLoops(MessagePassing):
@@ -153,7 +153,7 @@ def test_hetero_conv_with_dot_syntax_node_types():
     data['src.paper', 'src.paper'].edge_index = edge_index
     data['src.paper', 'author'].edge_index = get_random_edge_index(50, 30, 100)
     data['author', 'src.paper'].edge_index = get_random_edge_index(30, 50, 100)
-    data['src.paper', 'src.paper'].edge_weight = paddle.rand(200)
+    data['src.paper', 'src.paper'].edge_weight = paddle.rand([200])
 
     conv = HeteroConv({
         ('src.paper', 'to', 'src.paper'):
@@ -174,20 +174,24 @@ def test_hetero_conv_with_dot_syntax_node_types():
     )
 
     assert len(out_dict) == 2
-    assert out_dict['src.paper'].shape== (50, 64)
-    assert out_dict['author'].shape== (30, 64)
+    assert tuple(out_dict['src.paper'].shape)== (50, 64)
+    assert tuple(out_dict['author'].shape)== (30, 64)
 
 
 @withDevice
 @onlyLinux
 @withPackage('paddle>=2.1.0')
 def test_compile_hetero_conv_graph_breaks(device):
-    import paddle._dynamo as dynamo
+    try:
+        import paddle._dynamo as dynamo
+    except Exception:
+        import pytest
+        pytest.skip("paddle._dynamo is not available")
 
     data = HeteroData()
-    data['a'].x = paddle.randn(shape=[50, 16, place=device])
-    data['b'].x = paddle.randn(shape=[50, 16, place=device])
-    edge_index = get_random_edge_index(50, 50, 100, place=device)
+    data['a'].x = paddle.randn([50, 16], device=device)
+    data['b'].x = paddle.randn([50, 16], device=device)
+    edge_index = get_random_edge_index(50, 50, 100, device=device)
     data['a', 'to', 'b'].edge_index = edge_index
     data['b', 'to', 'a'].edge_index = edge_index.flip([0])
 

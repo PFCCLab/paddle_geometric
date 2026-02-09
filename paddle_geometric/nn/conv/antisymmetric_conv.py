@@ -4,9 +4,10 @@ from typing import Any, Callable, Dict, Optional, Union
 import paddle
 from paddle import Tensor
 from paddle.nn import Layer
+
 from paddle_geometric.nn.conv import GCNConv, MessagePassing
+from paddle_geometric.nn.inits import kaiming_uniform, zeros
 from paddle_geometric.nn.resolver import activation_resolver
-from paddle_geometric.nn.inits import zeros
 from paddle_geometric.typing import Adj
 
 
@@ -15,16 +16,26 @@ class AntiSymmetricConv(Layer):
     `"Anti-Symmetric DGN: a stable architecture for Deep Graph Networks"
     <https://openreview.net/forum?id=J3Y7cgZOOS>`_ paper.
 
+    .. math::
+        \mathbf{x}^{\prime}_i = \mathbf{x}_i + \epsilon \cdot \sigma \left(
+            (\mathbf{W}-\mathbf{W}^T-\gamma \mathbf{I}) \mathbf{x}_i +
+            \Phi(\mathbf{X}, \mathcal{N}_i) + \mathbf{b}\right),
+
+    where :math:`\Phi(\mathbf{X}, \mathcal{N}_i)` denotes a
+    :class:`~paddle_geometric.nn.conv.MessagePassing` layer.
+
     Args:
         in_channels (int): Size of each input sample.
         phi (MessagePassing, optional): The message passing module
             :math:`\Phi`. If set to :obj:`None`, will use a
             :class:`~paddle_geometric.nn.conv.GCNConv` layer as default.
+            (default: :obj:`None`)
         num_iters (int, optional): The number of times the anti-symmetric deep
             graph network operator is called. (default: :obj:`1`)
         epsilon (float, optional): The discretization step size
             :math:`\epsilon`. (default: :obj:`0.1`)
         gamma (float, optional): The strength of the diffusion :math:`\gamma`.
+            It regulates the stability of the method. (default: :obj:`0.1`)
         act (str, optional): The non-linear activation function :math:`\sigma`,
             *e.g.*, :obj:`"tanh"` or :obj:`"relu"`. (default: :class:`"tanh"`)
         act_kwargs (Dict[str, Any], optional): Arguments passed to the
@@ -32,6 +43,13 @@ class AntiSymmetricConv(Layer):
             (default: :obj:`None`)
         bias (bool, optional): If set to :obj:`False`, the layer will not learn
             an additive bias. (default: :obj:`True`)
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})`,
+          edge indices :math:`(2, |\mathcal{E}|)`,
+          edge weights :math:`(|\mathcal{E}|)` *(optional)*
+        - **output:** node features :math:`(|\mathcal{V}|, F_{in})`
     """
     def __init__(
         self,
@@ -53,14 +71,10 @@ class AntiSymmetricConv(Layer):
         self.act = activation_resolver(act, **(act_kwargs or {}))
 
         if phi is None:
-            phi = GCNConv(in_channels, in_channels, bias_attr=False)
+            phi = GCNConv(in_channels, in_channels, bias=False)
 
         self.W = self.create_parameter(shape=[in_channels, in_channels])
-        self.eye = self.create_parameter(
-            shape=[in_channels, in_channels],
-            default_initializer=paddle.nn.initializer.Assign(paddle.eye(in_channels)),
-            stop_gradient=True
-        )
+        self.register_buffer('eye', paddle.eye(in_channels))
         self.phi = phi
 
         if bias:
@@ -71,12 +85,13 @@ class AntiSymmetricConv(Layer):
         self.reset_parameters()
 
     def reset_parameters(self):
-        paddle.nn.initializer.KaimingUniform()(self.W)
+        r"""Resets all learnable parameters of the module."""
+        kaiming_uniform(self.W, fan=self.in_channels, a=math.sqrt(5))
         self.phi.reset_parameters()
-        if self.bias is not None:
-            zeros(self.bias)
+        zeros(self.bias)
 
     def forward(self, x: Tensor, edge_index: Adj, *args, **kwargs) -> Tensor:
+        r"""Runs the forward pass of the module."""
         antisymmetric_W = self.W - self.W.transpose([1, 0]) - self.gamma * self.eye
 
         for _ in range(self.num_iters):

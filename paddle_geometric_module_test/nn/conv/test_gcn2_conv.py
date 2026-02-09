@@ -11,17 +11,17 @@ def test_gcn2_conv():
     x = paddle.randn(shape=[4, 16])
     x_0 = paddle.randn(shape=[4, 16])
     edge_index = paddle.to_tensor([[0, 0, 0, 1, 2, 3], [1, 2, 3, 0, 0, 0]])
-    value = paddle.rand(edge_index.shape[1])
+    value = paddle.rand([edge_index.shape[1]])
     adj1 = to_paddle_csc_tensor(edge_index, size=(4, 4))
     adj2 = to_paddle_csc_tensor(edge_index, value, size=(4, 4))
 
     conv = GCN2Conv(16, alpha=0.2)
     assert str(conv) == 'GCN2Conv(16, alpha=0.2, beta=1.0)'
     out1 = conv(x, x_0, edge_index)
-    assert out1.shape== (4, 16)
+    assert tuple(out1.shape)== (4, 16)
     assert paddle.allclose(conv(x, x_0, adj1.t()), out1, atol=1e-6)
     out2 = conv(x, x_0, edge_index, value)
-    assert out2.shape== (4, 16)
+    assert tuple(out2.shape)== (4, 16)
     assert paddle.allclose(conv(x, x_0, adj2.t()), out2, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

@@ -20,6 +20,12 @@ from paddle_geometric.utils import (
 )
 from paddle_geometric.utils.sparse import cat
 
+HAS_PADDLE_SPARSE_CSC = (
+    hasattr(paddle, 'sparse_csc')
+    and hasattr(paddle.sparse, 'sparse_csc_tensor')
+    and hasattr(paddle.Tensor, 'to_sparse_csc')
+)
+
 
 def test_dense_to_sparse():
     adj = paddle.to_tensor([
@@ -174,21 +180,43 @@ def test_to_paddle_csc_tensor():
     ])
 
     adj = to_paddle_csc_tensor(edge_index)
-    assert adj.shape== (4, 4)
-    assert adj.layout == paddle.sparse_csc
-    adj_coo = adj.to_sparse_coo().coalesce()
-
-    assert paddle.allclose(adj_coo.indices().flip([0]), edge_index)
+    if HAS_PADDLE_SPARSE_CSC:
+        assert adj.shape== (4, 4)
+        assert adj.layout == paddle.sparse_csc
+        adj_coo = adj.to_sparse_coo().coalesce()
+        assert paddle.allclose(adj_coo.indices().flip([0]), edge_index)
+    else:
+        from paddle_geometric.typing import MockPaddleCSCTensor
+        assert isinstance(adj, MockPaddleCSCTensor)
+        csr = adj.t()
+        edge_index_out, _ = to_edge_index(csr)
+        expected = edge_index.flip([0])
+        num_nodes = int(expected.max().item()) + 1
+        order_out = (edge_index_out[0] * num_nodes + edge_index_out[1]).argsort()
+        order_exp = (expected[0] * num_nodes + expected[1]).argsort()
+        assert paddle.allclose(edge_index_out[:, order_out], expected[:, order_exp])
 
     edge_weight = paddle.randn(shape=[edge_index.shape[1]])
     adj = to_paddle_csc_tensor(edge_index, edge_weight)
-    assert adj.shape== (4, 4)
-    assert adj.layout == paddle.sparse_csc
-    adj_coo = adj.to_sparse_coo().coalesce()
+    if HAS_PADDLE_SPARSE_CSC:
+        assert adj.shape== (4, 4)
+        assert adj.layout == paddle.sparse_csc
+        adj_coo = adj.to_sparse_coo().coalesce()
 
-    perm = adj_coo.indices()[0].argsort()
-    assert paddle.allclose(adj_coo.indices()[:, perm], edge_index)
-    assert paddle.allclose(adj_coo.values()[perm], edge_weight)
+        perm = adj_coo.indices()[0].argsort()
+        assert paddle.allclose(adj_coo.indices()[:, perm], edge_index)
+        assert paddle.allclose(adj_coo.values()[perm], edge_weight)
+    else:
+        from paddle_geometric.typing import MockPaddleCSCTensor
+        assert isinstance(adj, MockPaddleCSCTensor)
+        csr = adj.t()
+        edge_index_out, edge_weight_out = to_edge_index(csr)
+        expected = edge_index.flip([0])
+        num_nodes = int(expected.max().item()) + 1
+        order_out = (edge_index_out[0] * num_nodes + edge_index_out[1]).argsort()
+        order_exp = (expected[0] * num_nodes + expected[1]).argsort()
+        assert paddle.allclose(edge_index_out[:, order_out], expected[:, order_exp])
+        assert paddle.allclose(edge_weight_out[order_out], edge_weight[order_exp])
 
 
 @withPackage('paddle>=2.1.0')
@@ -228,7 +256,9 @@ def test_to_edge_index():
 @withCUDA
 @pytest.mark.parametrize(
     'layout',
-    [paddle.sparse_coo, paddle.sparse_csr, paddle.sparse_csc],
+    [paddle.sparse_coo, paddle.sparse_csr] + (
+        [paddle.sparse_csc] if HAS_PADDLE_SPARSE_CSC else []
+    ),
 )
 @pytest.mark.parametrize('dim', [0, 1, (0, 1)])
 def test_cat(layout, dim, device):

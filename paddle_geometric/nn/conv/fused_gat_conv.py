@@ -36,7 +36,7 @@ class FusedGATConv(GATConv):  # pragma: no cover
                              f"edge features. Set `edge_dim=None` in order "
                              f"to proceed.")
 
-        from dgNN.operators import GATConvFuse
+        from paddle_geometric.nn.conv.fused_gatconv_paddle import GATConvFuse
         self.op = GATConvFuse
 
     @staticmethod
@@ -59,7 +59,8 @@ class FusedGATConv(GATConv):  # pragma: no cover
         col = edge_index[1]
 
         device = edge_index.place
-        perm = paddle.arange(edge_index.shape[1], dtype=paddle.int32, place=device)
+        perm = paddle.arange(edge_index.shape[1], dtype=paddle.int32,
+                             device=device)
         edge_index, perm = sort_edge_index(edge_index, perm, sort_by_row=False)
         row = edge_index[0]
         colptr = index2ptr(edge_index[1], size=size[1] if size else None)
@@ -93,8 +94,8 @@ class FusedGATConv(GATConv):  # pragma: no cover
         """
         H, C = self.heads, self.out_channels
 
-        assert x.dim() == 2, "Static graphs not supported in 'GATConv'"
-        x = self.lin_src(x).reshape((-1, H, C))
+        assert x.ndim == 2, "Static graphs not supported in 'GATConv'"
+        x = (self.lin_src if self.lin_src is not None else self.lin)(x).reshape((-1, H, C))
 
         alpha_src = (x * self.att_src).sum(axis=-1)
         alpha_dst = (x * self.att_dst).sum(axis=-1)
@@ -102,13 +103,16 @@ class FusedGATConv(GATConv):  # pragma: no cover
         dropout = self.dropout if self.training else 0.0
 
         (rowptr, col), (row, colptr) = csr, csc
-        out = self.op(alpha_dst, alpha_src, rowptr, col, colptr, row, perm,
-                      self.negative_slope, x, dropout)
+
 
         if self.concat:
-            out = out.reshape((-1, self.heads * self.out_channels))
+            out = self.op(alpha_dst, alpha_src, rowptr, col, colptr, row, perm,
+                          self.negative_slope, x, dropout)
+            # out shape is [num_nodes, H * C]
         else:
-            out = out.mean(axis=1)
+            out_concat = self.op(alpha_dst, alpha_src, rowptr, col, colptr, row, perm,
+                                self.negative_slope, x, dropout)
+            out = out_concat.reshape([-1, H, C]).mean(axis=1)
 
         if self.bias is not None:
             out += self.bias

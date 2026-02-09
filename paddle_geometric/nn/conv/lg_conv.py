@@ -49,7 +49,13 @@ class LGConv(MessagePassing):
         return self.propagate(edge_index, x=x, edge_weight=edge_weight)
 
     def message(self, x_j: Tensor, edge_weight: OptTensor) -> Tensor:
-        return x_j if edge_weight is None else edge_weight.unsqueeze(-1) * x_j
+        return x_j if edge_weight is None else edge_weight.reshape([-1, 1]) * x_j
 
     def message_and_aggregate(self, adj_t: Adj, x: Tensor) -> Tensor:
         return spmm(adj_t, x, reduce=self.aggr)
+
+    def __repr__(self) -> str:
+        if self.normalize:
+            return f'{self.__class__.__name__}()'
+        else:
+            return f'{self.__class__.__name__}(normalize={self.normalize})'

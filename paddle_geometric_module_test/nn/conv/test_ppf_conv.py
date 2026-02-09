@@ -15,8 +15,8 @@ def test_ppf_conv():
     x1 = paddle.randn(shape=[4, 16])
     pos1 = paddle.randn(shape=[4, 3])
     pos2 = paddle.randn(shape=[2, 3])
-    n1 = F.normalize(paddle.rand(4, 3), dim=-1)
-    n2 = F.normalize(paddle.rand(2, 3), dim=-1)
+    n1 = F.normalize(paddle.rand([4, 3]), axis=-1)
+    n2 = F.normalize(paddle.rand([2, 3]), axis=-1)
     edge_index = paddle.to_tensor([[0, 1, 2, 3], [0, 0, 1, 1]])
     adj1 = to_paddle_csc_tensor(edge_index, size=(4, 4))
 
@@ -25,15 +25,15 @@ def test_ppf_conv():
     conv = PPFConv(local_nn, global_nn)
     assert str(conv) == (
         'PPFConv(local_nn=Sequential(\n'
-        '  (0): Linear(in_features=20, out_features=32, bias=True)\n'
+        '  (0): Linear(in_features=20, out_features=32, dtype=float32)\n'
         '  (1): ReLU()\n'
-        '  (2): Linear(in_features=32, out_features=32, bias=True)\n'
+        '  (2): Linear(in_features=32, out_features=32, dtype=float32)\n'
         '), global_nn=Sequential(\n'
-        '  (0): Linear(in_features=32, out_features=32, bias=True)\n'
+        '  (0): Linear(in_features=32, out_features=32, dtype=float32)\n'
         '))')
 
     out = conv(x1, pos1, n1, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, pos1, n1, adj1.t()), out, atol=1e-3)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -51,7 +51,7 @@ def test_ppf_conv():
     adj1 = to_paddle_csc_tensor(edge_index, size=(4, 2))
 
     out = conv(x1, (pos1, pos2), (n1, n2), edge_index)
-    assert out.shape== (2, 32)
+    assert tuple(out.shape)== (2, 32)
     assert paddle.allclose(conv((x1, None), (pos1, pos2), (n1, n2), edge_index),
                           out, atol=1e-3)
     assert paddle.allclose(conv(x1, (pos1, pos2), (n1, n2), adj1.t()), out,

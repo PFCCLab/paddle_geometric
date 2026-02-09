@@ -12,10 +12,10 @@ from paddle_geometric.utils import to_paddle_coo_tensor
 
 @withCUDA
 def test_nn_conv(device):
-    x1 = paddle.randn(shape=[4, 8, place=device])
-    x2 = paddle.randn(shape=[2, 16, place=device])
+    x1 = paddle.randn([4, 8], device=device)
+    x2 = paddle.randn([2, 16], device=device)
     edge_index = paddle.to_tensor([[0, 1, 2, 3], [0, 0, 1, 1]], place=device)
-    value = paddle.rand(edge_index.shape[1], 3, place=device)
+    value = paddle.rand([edge_index.shape[1], 3]).to(device)
     adj1 = to_paddle_coo_tensor(edge_index, value, size=(4, 4))
 
     nn = Seq(Lin(3, 32), ReLU(), Lin(32, 8 * 32))
@@ -28,7 +28,7 @@ def test_nn_conv(device):
         '))')
 
     out = conv(x1, edge_index, value)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, value, size=(4, 4)), out)
     assert paddle.allclose(conv(x1, adj1.transpose(0, 1).coalesce()), out)
 
@@ -56,13 +56,13 @@ def test_nn_conv(device):
         '))')
 
     out1 = conv((x1, x2), edge_index, value)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, value, (4, 2)), out1)
     assert paddle.allclose(conv((x1, x2),
                                adj1.transpose(0, 1).coalesce()), out1)
 
     out2 = conv((x1, None), edge_index, value, (4, 2))
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
     assert paddle.allclose(conv((x1, None),
                                adj1.transpose(0, 1).coalesce()), out2)
 

@@ -15,7 +15,7 @@ def test_cluster_gcn_conv():
     conv = ClusterGCNConv(16, 32, diag_lambda=1.)
     assert str(conv) == 'ClusterGCNConv(16, 32, diag_lambda=1.0)'
     out = conv(x, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x, adj1.t()), out, atol=1e-5)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

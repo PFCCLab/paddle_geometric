@@ -14,7 +14,7 @@ from paddle_geometric.utils import softmax
 
 def group(
     xs: List[Tensor],
-    q,
+    q: Tensor,
     k_lin: nn.Layer,
 ) -> Tuple[OptTensor, OptTensor]:
     if len(xs) == 0:
@@ -43,12 +43,15 @@ class HANConv(MessagePassing):
         metadata (Tuple[List[str], List[Tuple[str, str, str]]]): The metadata
             of the heterogeneous graph, *i.e.* its node and edge types given
             by a list of strings and a list of string triplets, respectively.
+            See :meth:`paddle_geometric.data.HeteroData.metadata` for more
+            information.
         heads (int, optional): Number of multi-head-attentions.
             (default: :obj:`1`)
         negative_slope (float, optional): LeakyReLU angle of the negative
             slope. (default: :obj:`0.2`)
         dropout (float, optional): Dropout probability of the normalized
-            attention coefficients. (default: :obj:`0`)
+            attention coefficients which exposes each node to a stochastically
+            sampled neighborhood during training. (default: :obj:`0`)
         **kwargs (optional): Additional arguments of
             :class:`paddle_geometric.nn.conv.MessagePassing`.
     """
@@ -74,7 +77,7 @@ class HANConv(MessagePassing):
         self.metadata = metadata
         self.dropout = dropout
         self.k_lin = nn.Linear(out_channels, out_channels)
-        self.q = self.create_parameter(shape=[1, out_channels], default_initializer=nn.initializer.XavierUniform())
+        self.q = self.create_parameter(shape=[1, out_channels])
 
         self.proj = nn.LayerDict()
         for node_type, in_channels in self.in_channels.items():
@@ -85,8 +88,10 @@ class HANConv(MessagePassing):
         dim = out_channels // heads
         for edge_type in metadata[1]:
             edge_type = '__'.join(edge_type)
-            self.lin_src[edge_type] = self.create_parameter(shape=[1, heads, dim], default_initializer=nn.initializer.XavierUniform())
-            self.lin_dst[edge_type] = self.create_parameter(shape=[1, heads, dim], default_initializer=nn.initializer.XavierUniform())
+            self.lin_src[edge_type] = self.create_parameter(
+                shape=[1, heads, dim])
+            self.lin_dst[edge_type] = self.create_parameter(
+                shape=[1, heads, dim])
 
         self.reset_parameters()
 
@@ -95,8 +100,9 @@ class HANConv(MessagePassing):
         reset(self.proj)
         glorot(self.lin_src)
         glorot(self.lin_dst)
-        self.k_lin.weight.set_value(paddle.nn.initializer.XavierUniform())
-        self.q.set_value(paddle.nn.initializer.XavierUniform())
+        if hasattr(self.k_lin, "reset_parameters"):
+            self.k_lin.reset_parameters()
+        glorot(self.q)
 
     def forward(
         self,
@@ -104,6 +110,20 @@ class HANConv(MessagePassing):
         edge_index_dict: Dict[EdgeType, Adj],
         return_semantic_attention_weights: bool = False,
     ) -> Union[Dict[NodeType, OptTensor], Tuple[Dict[NodeType, OptTensor], Dict[NodeType, OptTensor]]]:
+        r"""Runs the forward pass of the module.
+
+        Args:
+            x_dict (Dict[str, Tensor]): A dictionary holding node feature
+                information for each individual node type.
+            edge_index_dict (Dict[Tuple[str, str, str], Tensor]): A
+                dictionary holding graph connectivity information for each
+                individual edge type, either as a :class:`Tensor` of shape
+                :obj:`[2, num_edges]` or a :class:`SparseTensor`.
+            return_semantic_attention_weights (bool, optional): If set to
+                :obj:`True`, will additionally return the semantic-level
+                attention weights for each destination node type.
+                (default: :obj:`False`)
+        """
         H, D = self.heads, self.out_channels // self.heads
         x_node_dict, out_dict = {}, {}
 
@@ -122,11 +142,14 @@ class HANConv(MessagePassing):
             x_dst = x_node_dict[dst_type]
             alpha_src = (x_src * lin_src).sum(axis=-1)
             alpha_dst = (x_dst * lin_dst).sum(axis=-1)
-            out = self.propagate(edge_index, x=(x_src, x_dst), alpha=(alpha_src, alpha_dst))
+            # propagate_type: (x: PairTensor, alpha: PairTensor)
+            out = self.propagate(edge_index, x=(x_src, x_dst),
+                                 alpha=(alpha_src, alpha_dst))
 
             out = F.relu(out)
             out_dict[dst_type].append(out)
 
+        # iterate over node types:
         semantic_attn_dict = {}
         for node_type, outs in out_dict.items():
             out, attn = group(outs, self.q, self.k_lin)
@@ -138,7 +161,9 @@ class HANConv(MessagePassing):
 
         return out_dict
 
-    def message(self, x_j: Tensor, alpha_i: Tensor, alpha_j: Tensor, index: Tensor, ptr: Optional[Tensor], size_i: Optional[int]) -> Tensor:
+    def message(self, x_j: Tensor, alpha_i: Tensor, alpha_j: Tensor,
+                index: Tensor, ptr: Optional[Tensor],
+                size_i: Optional[int]) -> Tensor:
         alpha = alpha_j + alpha_i
         alpha = F.leaky_relu(alpha, self.negative_slope)
         alpha = softmax(alpha, index, ptr, size_i)
@@ -147,4 +172,5 @@ class HANConv(MessagePassing):
         return out.reshape([-1, self.out_channels])
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.out_channels}, heads={self.heads})'
+        return (f'{self.__class__.__name__}({self.out_channels}, '
+                f'heads={self.heads})')

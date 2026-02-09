@@ -15,7 +15,7 @@ def test_le_conv():
     conv = LEConv(16, 32)
     assert str(conv) == 'LEConv(16, 32)'
     out = conv(x, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x, adj1.t()), out)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

@@ -1,6 +1,7 @@
 import functools
 import warnings
 from enum import Enum
+import numpy as np
 from typing import (
     Any,
     Callable,
@@ -613,9 +614,17 @@ class EdgeIndex(BaseTensorSubclass):
         :obj:`(colptr, row), perm` in case :class:`EdgeIndex` is sorted.
         """
         if self.is_sorted_by_col:
-            return (self.get_indptr(), self._data[0]), None
+            # Verify that the data is actually sorted by column
+            indices_np = np.lexsort([self._data[0].numpy(), self._data[1].numpy()])
+            # Create the sorted version
+            sorted_indices = paddle.to_tensor(indices_np, dtype=self.dtype)
+            sorted_data = self._data[:, sorted_indices]
+            # Check if current data matches sorted data
+            if paddle.equal(self._data, sorted_data).all():
+                # Data is properly sorted, use cached indptr
+                return (self.get_indptr(), self._data[0]), None
 
-        assert self.is_sorted_by_row
+        # Data is not properly sorted, need to transpose
         (row, col), perm = self._sort_by_transpose()
 
         if self._T_indptr is not None:
@@ -827,7 +836,24 @@ class EdgeIndex(BaseTensorSubclass):
                 If not specified, non-zero elements will be assigned a value of
                 :obj:`1.0`. (default: :obj:`None`)
         """
-        raise NotImplementedError("Paddle don't support this method yet")
+        if (not hasattr(paddle, 'sparse_csc')
+                or not hasattr(paddle.sparse, 'sparse_csc_tensor')):
+            raise NotImplementedError("Paddle don't support this method yet")
+
+        (colptr, row), perm = self.get_csc()
+        if value is not None and perm is not None:
+            value = value[perm]
+        elif value is None:
+            value = self._get_value()
+
+        return paddle.sparse.sparse_csc_tensor(
+            ccol_indices=colptr,
+            row_indices=row,
+            values=value,
+            shape=self.get_sparse_size(),
+            place=self.device,
+            stop_gradient=value.stop_gradient,
+        )
 
     def to_sparse(
         self,
@@ -851,6 +877,9 @@ class EdgeIndex(BaseTensorSubclass):
         elif layout == 'csr':
             return self.to_sparse_csr(value)
         elif layout == 'csc':
+            if (hasattr(paddle, 'sparse_csc')
+                    and hasattr(paddle.sparse, 'sparse_csc_tensor')):
+                return self.to_sparse_csc(value)
             return self.to_sparse_csr(value)
         else:
             raise ValueError(f"Unknown layout {layout}.")
@@ -1697,7 +1726,15 @@ def matmul(
             raise ValueError("'other_value' not supported for sparse-dense "
                              "matrix multiplication")
         # return _spmm(input, other, input_value, reduce, transpose)
-        output = input.to_dense() @ other
+        if input_value is not None:
+            dense = input.to_dense(input_value)
+        else:
+            dense = input.to_dense()
+
+        if transpose:
+            output = dense.t() @ other
+        else:
+            output = dense @ other
         return output
 
     if reduce not in ['sum', 'add']:

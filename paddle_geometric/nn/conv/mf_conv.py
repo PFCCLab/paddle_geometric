@@ -1,5 +1,6 @@
 from typing import Tuple, Union
 
+import paddle
 from paddle import Tensor
 from paddle.nn import LayerList
 
@@ -55,12 +56,12 @@ class MFConv(MessagePassing):
             in_channels = (in_channels, in_channels)
 
         self.lins_l = LayerList([
-            Linear(in_channels[0], out_channels, bias_attr=bias)
+            Linear(in_channels[0], out_channels, bias=bias)
             for _ in range(max_degree + 1)
         ])
 
         self.lins_r = LayerList([
-            Linear(in_channels[1], out_channels, bias_attr=False)
+            Linear(in_channels[1], out_channels, bias=False)
             for _ in range(max_degree + 1)
         ])
 
@@ -85,21 +86,22 @@ class MFConv(MessagePassing):
 
         x_r = x[1]
 
-        # Compute degree of each node
+        deg = x[0]  # Dummy.
         if isinstance(edge_index, SparseTensor):
-            deg = edge_index.storage.row_count()
+            deg = edge_index.storage.rowcount()
         elif isinstance(edge_index, Tensor):
             i = 1 if self.flow == 'source_to_target' else 0
             N = x[0].shape[self.node_dim]
             N = size[1] if size is not None else N
             N = x_r.shape[self.node_dim] if x_r is not None else N
             deg = degree(edge_index[i], N, dtype='int64')
-        deg = paddle.clip(deg, max=self.max_degree)
+        deg = deg.clip(max=self.max_degree)
 
         # propagate_type: (x: OptPairTensor)
         h = self.propagate(edge_index, x=x, size=size)
 
-        out = paddle.zeros(shape=(h.shape[0], self.out_channels), dtype=h.dtype)
+        out = paddle.empty(list(h.shape)[:-1] + [self.out_channels],
+                           dtype=h.dtype)
         for i, (lin_l, lin_r) in enumerate(zip(self.lins_l, self.lins_r)):
             idx = paddle.nonzero(deg == i).flatten()
             r = lin_l(h.index_select(idx, axis=self.node_dim))
@@ -107,7 +109,7 @@ class MFConv(MessagePassing):
             if x_r is not None:
                 r = r + lin_r(x_r.index_select(idx, axis=self.node_dim))
 
-            out.scatter_(idx, r, overwrite=True)
+            out.index_copy_(self.node_dim, idx, r)
 
         return out
 
@@ -116,5 +118,5 @@ class MFConv(MessagePassing):
 
     def message_and_aggregate(self, adj_t: Adj, x: OptPairTensor) -> Tensor:
         if isinstance(adj_t, SparseTensor):
-            adj_t = adj_t.set_value(None)
+            adj_t = adj_t.set_value(None, layout=None)
         return spmm(adj_t, x[0], reduce=self.aggr)

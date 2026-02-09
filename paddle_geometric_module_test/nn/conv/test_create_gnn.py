@@ -31,6 +31,6 @@ class GCNConv(MessagePassing):
 def test_create_gnn():
     conv = GCNConv(16, 32)
     x = paddle.randn(shape=[5, 16])
-    edge_index = paddle.randint(5, (2, 64), dtype=paddle.int64)
+    edge_index = paddle.randint(0, 5, shape=[2, 64], dtype=paddle.int64)
     out = conv(x, edge_index)
-    assert out.shape== (5, 32)
+    assert tuple(out.shape)== (5, 32)

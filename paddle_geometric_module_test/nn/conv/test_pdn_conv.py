@@ -15,7 +15,7 @@ def test_pdn_conv():
     assert str(conv) == "PDNConv(16, 32)"
 
     out = conv(x, edge_index, edge_attr)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_attr, (4, 4))
@@ -30,10 +30,10 @@ def test_pdn_conv():
 
 
 def test_pdn_conv_with_sparse_node_input_feature():
-    x = paddle.sparse_coo_tensor(
+    x = paddle.sparse.sparse_coo_tensor(
         indices=paddle.to_tensor([[0, 0], [0, 1]]),
         values=paddle.to_tensor([1.0, 1.0]),
-        size=paddle.shape[[4, 16]],
+        shape=[4, 16],
     )
     edge_index = paddle.to_tensor([[0, 0, 0, 1, 2, 3], [1, 2, 3, 0, 0, 0]])
     edge_attr = paddle.randn(shape=[edge_index.shape[1], 8])
@@ -41,7 +41,7 @@ def test_pdn_conv_with_sparse_node_input_feature():
     conv = PDNConv(16, 32, edge_dim=8, hidden_channels=128)
 
     out = conv(x, edge_index, edge_attr)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_attr, (4, 4))

@@ -1,7 +1,5 @@
 import copy
 import math
-import sys
-import time
 from collections import OrderedDict
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -9,12 +7,8 @@ import paddle
 from paddle import Tensor
 from paddle.nn import Layer
 
-import paddle_geometric.backend
-import paddle_geometric.typing
-from paddle_geometric import is_compiling
 from paddle_geometric.index import index2ptr
 from paddle_geometric.nn import inits
-from paddle_geometric.typing import pyg_lib
 from paddle_geometric.utils import index_sort
 
 
@@ -36,7 +30,7 @@ def reset_weight_(weight: paddle.Tensor, in_channels: int,
         inits.glorot(weight)
     elif initializer == "uniform":
         bound = 1.0 / math.sqrt(in_channels)
-        paddle.nn.init.uniform_(weight.data, -bound, bound)
+        paddle.nn.init.uniform_(weight, -bound, bound)
     elif initializer == "kaiming_uniform":
         inits.kaiming_uniform(weight, fan=in_channels, a=math.sqrt(5))
     elif initializer is None:
@@ -117,7 +111,7 @@ class Linear(Layer):
         # Initialize bias if specified
         if bias:
             self.bias = paddle.base.framework.EagerParamBase.from_tensor(
-                tensor=paddle.empty(shape=out_channels))
+                tensor=paddle.empty(shape=[out_channels]))
         else:
             self.bias = None
 
@@ -288,32 +282,6 @@ class HeteroLinear(Layer):
             out[start:end] = x[start:end] @ self.weight[i]
         return out
 
-    def forward_segmm(self, x: paddle.Tensor,
-                      type_ptr: paddle.Tensor) -> paddle.Tensor:
-        return pyg_lib.ops.segment_matmul(x, type_ptr, self.weight)
-
-    @paddle.no_grad()
-    def _update_timing_cache(self, x: paddle.Tensor, type_ptr: paddle.Tensor,
-                             key: int) -> None:
-        MEASURE_ITER = 1 if "pytest" in sys.modules else 3
-        if paddle.device.cuda.device_count() >= 1:
-            paddle.device.synchronize()
-        t = time.perf_counter()
-        for _ in range(MEASURE_ITER):
-            _ = self.forward_segmm(x, type_ptr)
-        if paddle.device.cuda.device_count() >= 1:
-            paddle.device.synchronize()
-        time_segmm = time.perf_counter() - t
-        if paddle.device.cuda.device_count() >= 1:
-            paddle.device.synchronize()
-        t = time.perf_counter()
-        for _ in range(MEASURE_ITER):
-            _ = self.forward_naive(x, type_ptr)
-        if paddle.device.cuda.device_count() >= 1:
-            paddle.device.synchronize()
-        time_naive = time.perf_counter() - t
-        self._timing_cache[key] = time_segmm, time_naive
-
     def forward(self, x: paddle.Tensor,
                 type_vec: paddle.Tensor) -> paddle.Tensor:
         """The forward pass.
@@ -327,21 +295,7 @@ class HeteroLinear(Layer):
             type_vec, perm = index_sort(type_vec, self.num_types)
             x = x[perm]
         type_ptr = index2ptr(type_vec, self.num_types)
-        if paddle_geometric.backend.use_segment_matmul is None:
-            use_segment_matmul = False
-            if (paddle_geometric.typing.WITH_SEGMM and not is_compiling()):
-                key = math.floor(math.log10(x.shape[0]))
-                if key not in self._timing_cache:
-                    self._update_timing_cache(x, type_ptr, key)
-                time_segmm, time_naive = self._timing_cache[key]
-                use_segment_matmul = time_segmm < time_naive
-        else:
-            use_segment_matmul = paddle_geometric.backend.use_segment_matmul
-        if (paddle_geometric.typing.WITH_SEGMM and not is_compiling()
-                and use_segment_matmul):
-            out = self.forward_segmm(x, type_ptr)
-        else:
-            out = self.forward_naive(x, type_ptr)
+        out = self.forward_naive(x, type_ptr)
         if self.bias is not None:
             out += self.bias[type_vec]
         if perm is not None:
@@ -450,26 +404,9 @@ class HeteroDictLinear(Layer):
                 features for each individual type.
         """
         out_dict = {}
-        use_segment_matmul = paddle_geometric.backend.use_segment_matmul
-        if use_segment_matmul is None:
-            use_segment_matmul = len(x_dict) >= 10
-        if (use_segment_matmul and paddle_geometric.typing.WITH_GMM
-                and not is_compiling()):
-            xs, weights, biases = [], [], []
-            for key, lin in self.lins.items():
-                if key in x_dict:
-                    xs.append(x_dict[key])
-                    weights.append(lin.weight.t())
-                    biases.append(lin.bias)
-            biases = None if biases[0] is None else biases
-            outs = pyg_lib.ops.grouped_matmul(xs, weights, biases)
-            for key, out in zip(x_dict.keys(), outs):
-                if key in x_dict:
-                    out_dict[key] = out
-        else:
-            for key, lin in self.lins.items():
-                if key in x_dict:
-                    out_dict[key] = lin(x_dict[key])
+        for key, lin in self.lins.items():
+            if key in x_dict:
+                out_dict[key] = lin(x_dict[key])
         return out_dict
 
     @paddle.no_grad()

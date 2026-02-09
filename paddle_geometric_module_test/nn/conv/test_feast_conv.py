@@ -17,7 +17,7 @@ def test_feast_conv():
     assert str(conv) == 'FeaStConv(16, 32, heads=2)'
 
     out = conv(x1, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, adj1.t()), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -35,7 +35,7 @@ def test_feast_conv():
     adj1 = to_paddle_csc_tensor(edge_index, size=(4, 2))
 
     out = conv((x1, x2), edge_index)
-    assert out.shape== (2, 32)
+    assert tuple(out.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), adj1.t()), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

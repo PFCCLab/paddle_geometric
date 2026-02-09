@@ -1,30 +1,34 @@
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import paddle
+import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Layer, Linear, BatchNorm1D, LayerNorm, InstanceNorm1D, ReLU, Dropout, Sequential
+from paddle.nn import BatchNorm1D, Dropout, InstanceNorm1D, LayerNorm, ReLU, Sequential
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.dense.linear import Linear
 from paddle_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 from paddle_geometric.nn.aggr import Aggregation, MultiAggregation
+from paddle_geometric.nn.inits import reset
 from paddle_geometric.nn.norm import MessageNorm
 
 
 class MLP(Sequential):
-    def __init__(self, channels: list, norm: Optional[str] = None,
-                 bias: bool = True, dropout: float = 0.0):
+    def __init__(self, channels: List[int], norm: Optional[str] = None,
+                 bias: bool = True, dropout: float = 0.):
         layers = []
         for i in range(1, len(channels)):
-            layers.append(Linear(channels[i - 1], channels[i], bias_attr=bias))
+            layers.append(Linear(channels[i - 1], channels[i], bias=bias))
 
             if i < len(channels) - 1:
-                if norm == 'batch':
+                if norm and norm == 'batch':
                     layers.append(BatchNorm1D(channels[i]))
-                elif norm == 'layer':
+                elif norm and norm == 'layer':
                     layers.append(LayerNorm(channels[i]))
-                elif norm == 'instance':
+                elif norm and norm == 'instance':
                     layers.append(InstanceNorm1D(channels[i]))
                 elif norm:
-                    raise NotImplementedError(f'Normalization layer "{norm}" not supported.')
+                    raise NotImplementedError(
+                        f'Normalization layer "{norm}" not supported.')
 
                 layers.append(ReLU())
                 layers.append(Dropout(dropout))
@@ -37,7 +41,7 @@ class GENConv(MessagePassing):
         self,
         in_channels: Union[int, Tuple[int, int]],
         out_channels: int,
-        aggr: Optional[Union[str, list, Aggregation]] = 'softmax',
+        aggr: Optional[Union[str, List[str], Aggregation]] = 'softmax',
         t: float = 1.0,
         learn_t: bool = False,
         p: float = 1.0,
@@ -48,7 +52,7 @@ class GENConv(MessagePassing):
         num_layers: int = 2,
         expansion: int = 2,
         eps: float = 1e-7,
-        bias: bool = False,
+        bias: bool = False,  # Changed from True to match PyTorch
         edge_dim: Optional[int] = None,
         **kwargs,
     ):
@@ -74,10 +78,10 @@ class GENConv(MessagePassing):
             in_channels = (in_channels, in_channels)
 
         if in_channels[0] != out_channels:
-            self.lin_src = Linear(in_channels[0], out_channels, bias_attr=bias)
+            self.lin_src = Linear(in_channels[0], out_channels, bias=bias)
 
         if edge_dim is not None and edge_dim != out_channels:
-            self.lin_edge = Linear(edge_dim, out_channels, bias_attr=bias)
+            self.lin_edge = Linear(edge_dim, out_channels, bias=bias)
 
         if isinstance(self.aggr_module, MultiAggregation):
             aggr_out_channels = self.aggr_module.get_out_channels(out_channels)
@@ -85,10 +89,11 @@ class GENConv(MessagePassing):
             aggr_out_channels = out_channels
 
         if aggr_out_channels != out_channels:
-            self.lin_aggr_out = Linear(aggr_out_channels, out_channels, bias_attr=bias)
+            self.lin_aggr_out = Linear(aggr_out_channels, out_channels,
+                                       bias=bias)
 
         if in_channels[1] != out_channels:
-            self.lin_dst = Linear(in_channels[1], out_channels, bias_attr=bias)
+            self.lin_dst = Linear(in_channels[1], out_channels, bias=bias)
 
         channels = [out_channels]
         for i in range(num_layers - 1):
@@ -100,7 +105,8 @@ class GENConv(MessagePassing):
             self.msg_norm = MessageNorm(learn_msg_scale)
 
     def reset_parameters(self):
-        self.mlp.apply(lambda layer: layer.reset_parameters() if hasattr(layer, 'reset_parameters') else None)
+        super().reset_parameters()
+        reset(self.mlp)
         if hasattr(self, 'msg_norm'):
             self.msg_norm.reset_parameters()
         if hasattr(self, 'lin_src'):
@@ -148,7 +154,7 @@ class GENConv(MessagePassing):
             assert x_j.shape[-1] == edge_attr.shape[-1]
 
         msg = x_j if edge_attr is None else x_j + edge_attr
-        return msg.relu(msg) + self.eps
+        return F.relu(msg) + self.eps
 
     def __repr__(self) -> str:
         return (f'{self.__class__.__name__}({self.in_channels}, '

@@ -19,6 +19,29 @@ class PointTransformerConv(MessagePassing):
     r"""The Point Transformer layer from the `"Point Transformer"
     <https://arxiv.org/abs/2012.09164>`_ paper.
 
+    .. math::
+        \mathbf{x}^{\prime}_i =  \sum_{j \in
+        \mathcal{N}(i) \cup \{ i \}} \alpha_{i,j} \left(\mathbf{W}_3
+        \mathbf{x}_j + \delta_{ij} \right),
+
+    where the attention coefficients :math:`\alpha_{i,j}` and
+    positional embedding :math:`\delta_{ij}` are computed as
+
+    .. math::
+        \alpha_{i,j}= \textrm{softmax} \left( \gamma_\mathbf{\Theta}
+        (\mathbf{W}_1 \mathbf{x}_i - \mathbf{W}_2 \mathbf{x}_j +
+        \delta_{i,j}) \right)
+
+    and
+
+    .. math::
+        \delta_{i,j}= h_{\mathbf{\Theta}}(\mathbf{p}_i - \mathbf{p}_j),
+
+    with :math:`\gamma_\mathbf{\Theta}` and :math:`h_\mathbf{\Theta}`
+    denoting neural networks, *i.e.* MLPs, and
+    :math:`\mathbf{P} \in \mathbb{R}^{N \times D}` defines the position of
+    each point.
+
     Args:
         in_channels (int or tuple): Size of each input sample, or :obj:`-1` to
             derive the size from the first input(s) to the forward method.
@@ -26,13 +49,30 @@ class PointTransformerConv(MessagePassing):
             dimensionalities.
         out_channels (int): Size of each output sample.
         pos_nn (paddle.nn.Layer, optional): A neural network
-            which maps relative spatial coordinates to the output shape.
-        attn_nn (paddle.nn.Layer, optional): A neural network that maps
-            transformed node features to the output shape.
-        add_self_loops (bool, optional): If set to :obj:`False`, will not add
+            :math:`h_\mathbf{\Theta}` which maps relative spatial coordinates
+            :obj:`pos_j - pos_i` of shape :obj:`[-1, 3]` to shape
+            :obj:`[-1, out_channels]`.
+            Will default to a :class:`paddle.nn.Linear` transformation if not
+            further specified. (default: :obj:`None`)
+        attn_nn (paddle.nn.Layer, optional): A neural network
+            :math:`\gamma_\mathbf{\Theta}` which maps transformed
+            node features of shape :obj:`[-1, out_channels]`
+            to shape :obj:`[-1, out_channels]`. (default: :obj:`None`)
+        add_self_loops (bool, optional) : If set to :obj:`False`, will not add
             self-loops to the input graph. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
             :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
+          if bipartite,
+          positions :math:`(|\mathcal{V}|, 3)` or
+          :math:`((|\mathcal{V_s}|, 3), (|\mathcal{V_t}|, 3))` if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V}_t|, F_{out})` if bipartite
     """
     def __init__(self, in_channels: Union[int, Tuple[int, int]],
                  out_channels: int, pos_nn: Optional[Callable] = None,
@@ -50,9 +90,9 @@ class PointTransformerConv(MessagePassing):
 
         self.pos_nn = pos_nn if pos_nn is not None else Linear(3, out_channels)
         self.attn_nn = attn_nn
-        self.lin = Linear(in_channels[0], out_channels, bias_attr=False)
-        self.lin_src = Linear(in_channels[0], out_channels, bias_attr=False)
-        self.lin_dst = Linear(in_channels[1], out_channels, bias_attr=False)
+        self.lin = Linear(in_channels[0], out_channels, bias=False)
+        self.lin_src = Linear(in_channels[0], out_channels, bias=False)
+        self.lin_dst = Linear(in_channels[1], out_channels, bias=False)
 
         self.reset_parameters()
 

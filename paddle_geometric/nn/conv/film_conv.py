@@ -3,10 +3,11 @@ from typing import Callable, Optional, Tuple, Union
 
 import paddle
 from paddle import Tensor
-from paddle.nn import LayerList, ReLU, Linear
-from paddle_geometric.nn.conv import MessagePassing
-from paddle_geometric.nn.inits import reset
+from paddle.nn import LayerList, ReLU
 
+from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.dense.linear import Linear
+from paddle_geometric.nn.inits import reset
 from paddle_geometric.typing import (
     Adj,
     OptTensor,
@@ -33,18 +34,28 @@ class FiLMConv(MessagePassing):
             dimensionalities.
         out_channels (int): Size of each output sample.
         num_relations (int, optional): Number of relations. (default: :obj:`1`)
-        nn (paddle.nn.Layer, optional): The neural network :math:`g` that
+        nn (torch.nn.Module, optional): The neural network :math:`g` that
             maps node features :obj:`x_i` of shape
             :obj:`[-1, in_channels]` to shape :obj:`[-1, 2 * out_channels]`.
             If set to :obj:`None`, :math:`g` will be implemented as a single
             linear layer. (default: :obj:`None`)
         act (callable, optional): Activation function :math:`\sigma`.
-            (default: :meth:`paddle.nn.ReLU()`)
+            (default: :meth:`torch.nn.ReLU()`)
         aggr (str, optional): The aggregation scheme to use
             (:obj:`"add"`, :obj:`"mean"`, :obj:`"max"`).
             (default: :obj:`"mean"`)
         **kwargs (optional): Additional arguments of
             :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
+          if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`,
+          edge types :math:`(|\mathcal{E}|)`
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V_t}|, F_{out})` if bipartite
     """
     def __init__(
             self,
@@ -69,16 +80,17 @@ class FiLMConv(MessagePassing):
         self.lins = LayerList()
         self.films = LayerList()
         for _ in range(num_relations):
-            self.lins.append(Linear(in_channels[0], out_channels, bias_attr=False))
+            self.lins.append(Linear(in_channels[0], out_channels, bias=False))
             if nn is None:
                 film = Linear(in_channels[1], 2 * out_channels)
             else:
                 film = copy.deepcopy(nn)
             self.films.append(film)
 
-        self.lin_skip = Linear(in_channels[1], self.out_channels, bias_attr=False)
+        self.lin_skip = Linear(in_channels[1], self.out_channels, bias=False)
         if nn is None:
-            self.film_skip = Linear(in_channels[1], 2 * self.out_channels, bias_attr=False)
+            self.film_skip = Linear(in_channels[1], 2 * self.out_channels,
+                                    bias=False)
         else:
             self.film_skip = copy.deepcopy(nn)
 
@@ -87,9 +99,9 @@ class FiLMConv(MessagePassing):
     def reset_parameters(self):
         super().reset_parameters()
         for lin, film in zip(self.lins, self.films):
-            lin.weight.set_value(paddle.nn.initializer.XavierUniform()(lin.weight.shape))
+            lin.reset_parameters()
             reset(film)
-        self.lin_skip.weight.set_value(paddle.nn.initializer.XavierUniform()(self.lin_skip.weight.shape))
+        self.lin_skip.reset_parameters()
         reset(self.film_skip)
 
     def forward(
@@ -102,20 +114,30 @@ class FiLMConv(MessagePassing):
         if isinstance(x, Tensor):
             x = (x, x)
 
-        beta, gamma = paddle.split(self.film_skip(x[1]), self.out_channels, axis=-1)
+        beta, gamma = paddle.split(self.film_skip(x[1]),
+                                   num_or_sections=[self.out_channels,
+                                                    self.out_channels],
+                                   axis=-1)
         out = gamma * self.lin_skip(x[1]) + beta
         if self.act is not None:
             out = self.act(out)
 
         # propagate_type: (x: Tensor, beta: Tensor, gamma: Tensor)
         if self.num_relations <= 1:
-            beta, gamma = paddle.split(self.films[0](x[1]), self.out_channels, axis=-1)
+            beta, gamma = paddle.split(self.films[0](x[1]),
+                                       num_or_sections=[self.out_channels,
+                                                        self.out_channels],
+                                       axis=-1)
             out = out + self.propagate(edge_index, x=self.lins[0](x[0]), beta=beta, gamma=gamma)
         else:
             for i, (lin, film) in enumerate(zip(self.lins, self.films)):
-                beta, gamma = paddle.split(film(x[1]), self.out_channels, axis=-1)
+                beta, gamma = paddle.split(film(x[1]),
+                                           num_or_sections=[self.out_channels,
+                                                            self.out_channels],
+                                           axis=-1)
                 if isinstance(edge_index, SparseTensor):
-                    _edge_type = edge_index.coo().values()
+                    _edge_type = edge_index.storage.value()
+                    assert _edge_type is not None
                     mask = _edge_type == i
                     adj_t = paddle_sparse.masked_select_nnz(edge_index, mask, layout='coo')
                     out = out + self.propagate(adj_t, x=lin(x[0]), beta=beta, gamma=gamma)

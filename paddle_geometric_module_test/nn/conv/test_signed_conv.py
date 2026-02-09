@@ -19,7 +19,7 @@ def test_signed_conv():
     assert str(conv2) == 'SignedConv(32, 48, first_aggr=False)'
 
     out1 = conv1(x, edge_index, edge_index)
-    assert out1.shape== (4, 64)
+    assert tuple(out1.shape)== (4, 64)
     assert paddle.allclose(conv1(x, adj1.t(), adj1.t()), out1)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -27,7 +27,7 @@ def test_signed_conv():
         assert paddle.allclose(conv1(x, adj2.t(), adj2.t()), out1)
 
     out2 = conv2(out1, edge_index, edge_index)
-    assert out2.shape== (4, 96)
+    assert tuple(out2.shape)== (4, 96)
     assert paddle.allclose(conv2(out1, adj1.t(), adj1.t()), out2)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

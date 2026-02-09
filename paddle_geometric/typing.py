@@ -227,6 +227,23 @@ except Exception as e:
 
 
 try:
+    import paddle_spline_conv  # noqa
+    WITH_PADDLE_SPLINE_CONV = True
+except Exception as e:
+    if not isinstance(e, ImportError):  # pragma: no cover
+        warnings.warn(f"An issue occurred while importing 'paddle-spline-conv'. "
+                      f"Disabling its usage. Stacktrace: {e}")
+    paddle_spline_conv = object
+    WITH_PADDLE_SPLINE_CONV = False
+
+    def spline_basis(*args, **kwargs):  # type: ignore
+        raise ImportError("'spline_basis' requires 'paddle-spline-conv'")
+
+    def spline_weighting(*args, **kwargs):  # type: ignore
+        raise ImportError("'spline_weighting' requires 'paddle-spline-conv'")
+
+
+try:
     raise ImportError
     # import paddle_frame  # noqa
     # WITH_PADDLE_FRAME = True
@@ -248,16 +265,24 @@ class MockPaddleCSCTensor:
     ):
         self.edge_index = edge_index
         self.edge_attr = edge_attr
-        self.size = size
+        self.size = size if size is not None else (int(edge_index[0].max()) + 1, int(edge_index[1].max()) + 1)
 
-    def t(self) -> Tensor:
-        from paddle_geometric.utils import to_paddle_csr_tensor
-        size = self.size
-        return to_paddle_csr_tensor(
-            self.edge_index.flip([0]),
-            self.edge_attr,
-            size[::-1] if isinstance(size, (tuple, list)) else size,
-        )
+    @property
+    def shape(self) -> Tuple[int, int]:
+        return self.size if isinstance(self.size, (tuple, list)) else (self.size, self.size)
+
+    def coo(self) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+        return self.edge_index[0], self.edge_index[1], self.edge_attr
+
+    def csr(self) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+        from paddle_geometric.utils import index2ptr
+        crow = index2ptr(self.edge_index[0], self.size[0])
+        return crow, self.edge_index[1], self.edge_attr
+
+    def t(self) -> 'MockPaddleCSCTensor':
+        transposed_edge_index = self.edge_index.flip([0])
+        transposed_size = (self.size[1], self.size[0]) if isinstance(self.size, (tuple, list)) else self.size
+        return MockPaddleCSCTensor(transposed_edge_index, self.edge_attr, transposed_size)
 
 
 # Types for accessing data ####################################################

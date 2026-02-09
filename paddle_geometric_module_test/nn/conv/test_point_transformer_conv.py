@@ -9,9 +9,9 @@ from paddle_geometric.utils import to_paddle_csc_tensor
 
 
 def test_point_transformer_conv():
-    x1 = paddle.rand(4, 16)
+    x1 = paddle.rand([4, 16])
     x2 = paddle.randn(shape=[2, 8])
-    pos1 = paddle.rand(4, 3)
+    pos1 = paddle.rand([4, 3])
     pos2 = paddle.randn(shape=[2, 3])
     edge_index = paddle.to_tensor([[0, 1, 2, 3], [0, 0, 1, 1]])
     adj1 = to_paddle_csc_tensor(edge_index, size=(4, 4))
@@ -20,7 +20,7 @@ def test_point_transformer_conv():
     assert str(conv) == 'PointTransformerConv(16, 32)'
 
     out = conv(x1, pos1, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, pos1, adj1.t()), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -39,7 +39,7 @@ def test_point_transformer_conv():
     conv = PointTransformerConv(16, 32, pos_nn, attn_nn)
 
     out = conv(x1, pos1, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, pos1, adj1.t()), out, atol=1e-6)
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         assert paddle.allclose(conv(x1, pos1, adj2.t()), out, atol=1e-6)
@@ -51,7 +51,7 @@ def test_point_transformer_conv():
     assert str(conv) == 'PointTransformerConv((16, 8), 32)'
 
     out = conv((x1, x2), (pos1, pos2), edge_index)
-    assert out.shape== (2, 32)
+    assert tuple(out.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), (pos1, pos2), adj1.t()), out)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

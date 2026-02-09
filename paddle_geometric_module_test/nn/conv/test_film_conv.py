@@ -15,7 +15,7 @@ def test_film_conv():
     conv = FiLMConv(4, 32)
     assert str(conv) == 'FiLMConv(4, 32, num_relations=1)'
     out = conv(x1, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, sparse_sizes=(4, 4))
@@ -31,7 +31,7 @@ def test_film_conv():
     conv = FiLMConv(4, 32, num_relations=2)
     assert str(conv) == 'FiLMConv(4, 32, num_relations=2)'
     out = conv(x1, edge_index, edge_type)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_type, (4, 4))
@@ -48,7 +48,7 @@ def test_film_conv():
     conv = FiLMConv((4, 16), 32)
     assert str(conv) == 'FiLMConv((4, 16), 32, num_relations=1)'
     out = conv((x1, x2), edge_index)
-    assert out.shape== (2, 32)
+    assert tuple(out.shape)== (2, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, sparse_sizes=(4, 2))
@@ -64,7 +64,7 @@ def test_film_conv():
     conv = FiLMConv((4, 16), 32, num_relations=2)
     assert str(conv) == 'FiLMConv((4, 16), 32, num_relations=2)'
     out = conv((x1, x2), edge_index, edge_type)
-    assert out.shape== (2, 32)
+    assert tuple(out.shape)== (2, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_type, (4, 2))

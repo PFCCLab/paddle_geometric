@@ -10,7 +10,10 @@ from paddle_geometric.nn.dense.linear import Linear
 from paddle_geometric.typing import OptPairTensor  # noqa
 from paddle_geometric.typing import OptTensor, PairOptTensor, PairTensor
 
-knn = None
+try:
+    from paddle_cluster import knn
+except Exception:
+    knn = None
 
 
 class GravNetConv(MessagePassing):
@@ -35,7 +38,7 @@ class GravNetConv(MessagePassing):
            paper.
         k (int): The number of nearest neighbors.
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**
@@ -55,7 +58,7 @@ class GravNetConv(MessagePassing):
                          **kwargs)
 
         if knn is None:
-            raise ImportError('`GravNetConv` requires `torch-cluster`.')
+            raise ImportError('`GravNetConv` requires `paddle-cluster`.')
 
         if num_workers is not None:
             warnings.warn(
@@ -92,7 +95,7 @@ class GravNetConv(MessagePassing):
             x = (x, x)
             is_bipartite = False
 
-        if x[0].dim() != 2:
+        if x[0].ndim != 2:
             raise ValueError("Static graphs not supported in 'GravNetConv'")
 
         b: PairOptTensor = (None, None)
@@ -115,7 +118,7 @@ class GravNetConv(MessagePassing):
         # propagate_type: (x: OptPairTensor, edge_weight: OptTensor)
         out = self.propagate(edge_index, x=(h_l, None),
                              edge_weight=edge_weight,
-                             size=(s_l.size(0), s_r.size(0)))
+                             size=(s_l.shape[0], s_r.shape[0]))
 
         return self.lin_out1(x[1]) + self.lin_out2(out)
 

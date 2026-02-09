@@ -7,7 +7,7 @@ from paddle_geometric.typing import SparseTensor
 
 
 def test_wl_conv():
-    edge_index = paddle.to_tensor([[0, 1, 1, 2], [1, 0, 2, 1]], dtype=paddle.long)
+    edge_index = paddle.to_tensor([[0, 1, 1, 2], [1, 0, 2, 1]], dtype=paddle.int64)
     x = paddle.to_tensor([[-1], [0], [1]], dtype=paddle.float)
 
     conv = WLConvContinuous()
@@ -33,10 +33,10 @@ def test_wl_conv():
     edge_weight = paddle.randn(shape=[edge_index.shape[1]])
 
     out1 = conv((x1, None), edge_index, edge_weight, size=(4, 2))
-    assert out1.shape== (2, 8)
+    assert tuple(out1.shape)== (2, 8)
 
     out2 = conv((x1, x2), edge_index, edge_weight)
-    assert out2.shape== (2, 8)
+    assert tuple(out2.shape)== (2, 8)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_weight, (4, 2))

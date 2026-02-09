@@ -20,7 +20,7 @@ def test_res_gated_graph_conv(edge_dim):
     assert str(conv) == 'ResGatedGraphConv(8, 32)'
 
     out = conv(x1, edge_index, edge_attr)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, adj1.t(), edge_attr), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -41,7 +41,7 @@ def test_res_gated_graph_conv(edge_dim):
     assert str(conv) == 'ResGatedGraphConv((8, 32), 32)'
 
     out = conv((x1, x2), edge_index, edge_attr)
-    assert out.shape== (2, 32)
+    assert tuple(out.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), adj1.t(), edge_attr), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

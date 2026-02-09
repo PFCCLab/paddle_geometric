@@ -3,13 +3,17 @@ from typing import Optional
 
 import paddle
 from paddle import Tensor
-from paddle.nn import ELU, BatchNorm1D as BN, Conv1D as Conv, Linear as L, Sequential as S
+from paddle.nn import ELU, BatchNorm1D as BN, Conv1D as Conv, Sequential as S
 
 import paddle_geometric.typing
 from paddle_geometric.nn import Reshape
+from paddle_geometric.nn.dense.linear import Linear as L
 from paddle_geometric.nn.inits import reset
 
-knn_graph = None
+try:
+    from paddle_cluster import knn_graph
+except ImportError:
+    knn_graph = None
 
 
 class XConv(paddle.nn.Layer):
@@ -31,6 +35,34 @@ class XConv(paddle.nn.Layer):
     individually lifts each point into a higher-dimensional space, and
     :math:`\gamma_{\mathbf{\Theta}}` computes the :math:`\mathcal{X}`-
     transformation matrix based on *all* points in a neighborhood.
+
+    Args:
+        in_channels (int): Size of each input sample.
+        out_channels (int): Size of each output sample.
+        dim (int): Point cloud dimensionality.
+        kernel_size (int): Size of the convolving kernel, *i.e.* number of
+            neighbors including self-loops.
+        hidden_channels (int, optional): Output size of
+            :math:`h_{\mathbf{\Theta}}`, *i.e.* dimensionality of lifted
+            points. If set to :obj:`None`, will be automatically set to
+            :obj:`in_channels / 4`. (default: :obj:`None`)
+        dilation (int, optional): The factor by which the neighborhood is
+            extended, from which :obj:`kernel_size` neighbors are then
+            uniformly sampled. Can be interpreted as the dilation rate of
+            classical convolutional operators. (default: :obj:`1`)
+        bias (bool, optional): If set to :obj:`False`, the layer will not learn
+            an additive bias. (default: :obj:`True`)
+        num_workers (int): Number of workers to use for k-NN computation.
+            Has no effect in case :obj:`batch` is not :obj:`None`, or the input
+            lies on the GPU. (default: :obj:`1`)
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})`,
+          positions :math:`(|\mathcal{V}|, D)`,
+          batch vector :math:`(|\mathcal{V}|)` *(optional)*
+        - **output:**
+          node features :math:`(|\mathcal{V}|, F_{out})`
     """
 
     def __init__(self, in_channels: int, out_channels: int, dim: int,

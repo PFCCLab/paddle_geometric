@@ -28,6 +28,12 @@ from paddle_geometric.testing import (
 from paddle_geometric.typing import INDEX_DTYPES, SparseTensor
 from paddle_geometric.utils import scatter
 
+HAS_PADDLE_SPARSE_CSC = (
+    hasattr(paddle, 'sparse_csc')
+    and hasattr(paddle.sparse, 'sparse_csc_tensor')
+    and hasattr(paddle.Tensor, 'to_sparse_csc')
+)
+
 DTYPES = [pytest.param(dtype, id=str(dtype)[6:]) for dtype in INDEX_DTYPES]
 IS_UNDIRECTED = [
     pytest.param(False, id='directed'),
@@ -116,11 +122,15 @@ def test_sparse_tensor(dtype, device):
     assert out.sparse_size() == (3, 3)
     assert out._indptr.equal(tensor([0, 1, 3, 4], place=device))
 
-    out = EdgeIndex(adj.to_sparse_csc())
-    assert out.equal(adj.sort_by('col')[0])
-    assert out.sort_order == 'col'
-    assert out.sparse_size() == (3, 3)
-    assert out._indptr.equal(tensor([0, 1, 3, 4], place=device))
+    if HAS_PADDLE_SPARSE_CSC:
+        out = EdgeIndex(adj.to_sparse_csc())
+        assert out.equal(adj.sort_by('col')[0])
+        assert out.sort_order == 'col'
+        assert out.sparse_size() == (3, 3)
+        assert out._indptr.equal(tensor([0, 1, 3, 4], place=device))
+    else:
+        with pytest.raises(NotImplementedError):
+            adj.to_sparse_csc()
 
 
 def test_set_tuple_item():
@@ -743,14 +753,18 @@ def test_to_sparse_csc(dtype, device):
 
     adj = EdgeIndex([[1, 0, 2, 1], [0, 1, 1, 2]], sort_order='col', **kwargs)
 
-    out = adj.to_sparse_csc()
-    assert isinstance(out, Tensor)
-    assert out.dtype == paddle.float32
-    assert out.device == device
-    assert out.layout == paddle.sparse_csc
-    assert out.shape== (3, 3)
-    assert adj._indptr.equal(out.ccol_indices())
-    assert adj[0].equal(out.row_indices())
+    if HAS_PADDLE_SPARSE_CSC:
+        out = adj.to_sparse_csc()
+        assert isinstance(out, Tensor)
+        assert out.dtype == paddle.float32
+        assert out.device == device
+        assert out.layout == paddle.sparse_csc
+        assert out.shape== (3, 3)
+        assert adj._indptr.equal(out.ccol_indices())
+        assert adj[0].equal(out.row_indices())
+    else:
+        with pytest.raises(NotImplementedError):
+            adj.to_sparse_csc()
 
 
 @withCUDA

@@ -53,6 +53,8 @@ def negative_sampling(
                 [2, 2, 1, 3]])
     """
     assert method in ["sparse", "dense"]
+    if edge_index.dtype != paddle.int64:
+        edge_index = edge_index.astype("int64")
     if num_nodes is None:
         num_nodes = maybe_num_nodes(edge_index, num_nodes)
     if isinstance(num_nodes, int):
@@ -162,6 +164,8 @@ def batched_negative_sampling(
         tensor([[ 0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  5,  5],
                 [ 2,  3,  0,  1,  6,  7,  4,  5, 10, 11,  8,  9]])
     """
+    if edge_index.dtype != paddle.int64:
+        edge_index = edge_index.astype("int64")
     if isinstance(batch, paddle.Tensor):
         src_batch, dst_batch = batch, batch
     else:
@@ -215,6 +219,8 @@ def structured_negative_sampling(
         (tensor([0, 0, 1, 2]), tensor([0, 1, 2, 3]), tensor([2, 3, 0, 2]))
 
     """
+    if edge_index.dtype != paddle.int64:
+        edge_index = edge_index.astype("int64")
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
     row, col = edge_index.cpu()
     pos_idx = row * num_nodes + col
@@ -279,9 +285,10 @@ def structured_negative_sampling_feasible(
 def sample(population: int, k: int,
            device: Optional[str] = None) -> paddle.Tensor:
     if population <= k:
-        return paddle.arange(end=population)
+        return paddle.arange(end=population, dtype="int64")
     else:
         return paddle.to_tensor(random.sample(range(population), k),
+                                dtype="int64",
                                 place=device)
 
 
@@ -325,7 +332,7 @@ def vector_to_edge_index(
     force_undirected: bool = False,
 ) -> paddle.Tensor:
     if bipartite:
-        row = idx.div(size[1], rounding_mode="floor")
+        row = paddle.floor_divide(idx, size[1])
         col = idx % size[1]
         col = col.astype(row.dtype)
         return paddle.stack(x=[row, col], axis=0)
@@ -345,7 +352,7 @@ def vector_to_edge_index(
     else:
         assert size[0] == size[1]
         num_nodes = size[0]
-        row = idx.div(num_nodes - 1, rounding_mode="floor")
+        row = paddle.floor_divide(idx, num_nodes - 1)
         col = idx % (num_nodes - 1)
         col = col.astype(row.dtype)
         col[row <= col] += 1

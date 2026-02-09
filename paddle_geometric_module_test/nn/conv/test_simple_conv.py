@@ -27,7 +27,7 @@ def test_simple_conv(aggr, combine_root):
     output_size = sum([8] * num_aggrs) + (8 if combine_root == 'cat' else 0)
 
     out = conv(x1, edge_index)
-    assert out.shape== (4, output_size)
+    assert tuple(out.shape)== (4, output_size)
     assert paddle.allclose(conv(x1, edge_index, size=(4, 4)), out)
     assert paddle.allclose(conv(x1, adj1.t()), out)
 
@@ -48,7 +48,7 @@ def test_simple_conv(aggr, combine_root):
         adj1 = to_paddle_csc_tensor(edge_index, size=(4, 2))
 
         out = conv((x1, x2), edge_index)
-        assert out.shape== (2, output_size)
+        assert tuple(out.shape)== (2, output_size)
         assert paddle.allclose(conv((x1, x2), edge_index, size=(4, 2)), out)
         assert paddle.allclose(conv((x1, x2), adj1.t()), out)
 

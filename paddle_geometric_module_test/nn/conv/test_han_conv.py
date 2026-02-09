@@ -36,8 +36,8 @@ def test_han_conv():
     assert str(conv) == 'HANConv(16, heads=2)'
     out_dict1 = conv(x_dict, edge_index_dict)
     assert len(out_dict1) == 3
-    assert out_dict1['author'].shape== (6, 16)
-    assert out_dict1['paper'].shape== (5, 16)
+    assert tuple(out_dict1['author'].shape)== (6, 16)
+    assert tuple(out_dict1['paper'].shape)== (5, 16)
     assert out_dict1['term'] is None
     del out_dict1['term']
     del x_dict['term']
@@ -64,8 +64,8 @@ def test_han_conv():
     assert str(conv) == 'HANConv(16, heads=2)'
     out_dict1 = conv(x_dict, edge_index_dict)
     assert len(out_dict1) == 2
-    assert out_dict1['author'].shape== (6, 16)
-    assert out_dict1['paper'].shape== (5, 16)
+    assert tuple(out_dict1['author'].shape)== (6, 16)
+    assert tuple(out_dict1['paper'].shape)== (5, 16)
 
 
 def test_han_conv_lazy():
@@ -93,8 +93,8 @@ def test_han_conv_lazy():
     assert str(conv) == 'HANConv(16, heads=2)'
     out_dict1 = conv(x_dict, edge_index_dict)
     assert len(out_dict1) == 2
-    assert out_dict1['author'].shape== (6, 16)
-    assert out_dict1['paper'].shape== (5, 16)
+    assert tuple(out_dict1['author'].shape)== (6, 16)
+    assert tuple(out_dict1['paper'].shape)== (5, 16)
 
     out_dict2 = conv(x_dict, adj_t_dict1)
     assert len(out_dict1) == len(out_dict2)
@@ -120,9 +120,9 @@ def test_han_conv_empty_tensor():
         'paper': paddle.empty(0, 12),
     }
     edge_index_dict = {
-        ('paper', 'to', 'author'): paddle.empty((2, 0), dtype=paddle.long),
-        ('author', 'to', 'paper'): paddle.empty((2, 0), dtype=paddle.long),
-        ('paper', 'to', 'paper'): paddle.empty((2, 0), dtype=paddle.long),
+        ('paper', 'to', 'author'): paddle.empty((2, 0), dtype=paddle.int64),
+        ('author', 'to', 'paper'): paddle.empty((2, 0), dtype=paddle.int64),
+        ('paper', 'to', 'paper'): paddle.empty((2, 0), dtype=paddle.int64),
     }
 
     metadata = (list(x_dict.keys()), list(edge_index_dict.keys()))
@@ -131,6 +131,6 @@ def test_han_conv_empty_tensor():
 
     out_dict = conv(x_dict, edge_index_dict)
     assert len(out_dict) == 2
-    assert out_dict['author'].shape== (6, 16)
+    assert tuple(out_dict['author'].shape)== (6, 16)
     assert paddle.all(out_dict['author'] == 0)
-    assert out_dict['paper'].shape== (0, 16)
+    assert tuple(out_dict['paper'].shape)== (0, 16)

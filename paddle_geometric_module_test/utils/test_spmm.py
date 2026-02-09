@@ -12,6 +12,12 @@ from paddle_geometric.testing import withCUDA, withPackage
 from paddle_geometric.typing import SparseTensor
 from paddle_geometric.utils import spmm, to_paddle_coo_tensor
 
+HAS_PADDLE_SPARSE_CSC = (
+    hasattr(paddle, 'sparse_csc')
+    and hasattr(paddle.sparse, 'sparse_csc_tensor')
+    and hasattr(paddle.Tensor, 'to_sparse_csc')
+)
+
 
 @withCUDA
 @pytest.mark.parametrize('reduce', ['sum', 'mean'])
@@ -57,7 +63,11 @@ def test_spmm_reduce(device, reduce):
 
 @withCUDA
 @pytest.mark.parametrize(
-    'layout', [paddle.sparse_coo, paddle.sparse_csr, paddle.sparse_csc])
+    'layout',
+    [paddle.sparse_coo, paddle.sparse_csr] + (
+        [paddle.sparse_csc] if HAS_PADDLE_SPARSE_CSC else []
+    ),
+)
 @pytest.mark.parametrize('reduce', ['sum', 'mean', 'min', 'max'])
 def test_spmm_layout(device, layout, reduce):
     src = paddle.randn(shape=[5, 4, place=device])
@@ -143,7 +153,9 @@ if __name__ == '__main__':
     reductions = ['sum', 'mean']
     if not x.place.is_gpu_place():
         reductions.extend(['min', 'max'])
-    layouts = [paddle.sparse_coo, paddle.sparse_csr, paddle.sparse_csc]
+    layouts = [paddle.sparse_coo, paddle.sparse_csr]
+    if HAS_PADDLE_SPARSE_CSC:
+        layouts.append(paddle.sparse_csc)
 
     for reduce, layout in itertools.product(reductions, layouts):
         print(f'Aggregator: {reduce}, Layout: {layout}')

@@ -2,10 +2,10 @@ from typing import Tuple, Union
 
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer, Linear
-from paddle.nn.initializer import XavierNormal, Constant
 
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.dense.linear import Linear, is_uninitialized_parameter
+from paddle_geometric.nn.inits import glorot, zeros
 from paddle_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 
 
@@ -88,52 +88,76 @@ class GMMConv(MessagePassing):
 
         if in_channels[0] > 0:
             self.g = self.create_parameter(
-                [in_channels[0], out_channels * kernel_size],
-                default_initializer=XavierNormal())
+                shape=[in_channels[0], out_channels * kernel_size])
+
             if not self.separate_gaussians:
-                self.mu = self.create_parameter([kernel_size, dim], default_initializer=XavierNormal())
-                self.sigma = self.create_parameter([kernel_size, dim], default_initializer=XavierNormal())
+                self.mu = self.create_parameter(shape=[kernel_size, dim])
+                self.sigma = self.create_parameter(shape=[kernel_size, dim])
             else:
-                self.mu = self.create_parameter([in_channels[0], out_channels, kernel_size, dim],
-                                                default_initializer=XavierNormal())
-                self.sigma = self.create_parameter([in_channels[0], out_channels, kernel_size, dim],
-                                                   default_initializer=XavierNormal())
+                self.mu = self.create_parameter(
+                    shape=[in_channels[0], out_channels, kernel_size, dim])
+                self.sigma = self.create_parameter(
+                    shape=[in_channels[0], out_channels, kernel_size, dim])
         else:
-            self.g = None
-            self.mu = None
-            self.sigma = None
+            self.g = self.create_parameter(shape=[0, 0])
+            self.mu = self.create_parameter(shape=[0, 0])
+            self.sigma = self.create_parameter(shape=[0, 0])
             self._hook = self.register_forward_pre_hook(self.initialize_parameters)
 
         if root_weight:
-            self.root = Linear(in_channels[1], out_channels, bias_attr=False)
+            self.root = Linear(in_channels[1], out_channels, bias=False,
+                               weight_initializer='glorot')
+        else:
+            self.register_parameter('root', None)
 
         if bias:
-            self.bias = self.create_parameter([out_channels], default_initializer=zeros)
+            self.bias = self.create_parameter(shape=[out_channels])
         else:
-            self.bias = None
+            self.register_parameter('bias', None)
 
-    def initialize_parameters(self, layer, input):
-        if self.g is None:
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        if not is_uninitialized_parameter(self.g):
+            glorot(self.g)
+            glorot(self.mu)
+            glorot(self.sigma)
+        if self.root_weight and self.root is not None:
+            self.root.reset_parameters()
+        zeros(self.bias)
+
+    @paddle.no_grad()
+    def initialize_parameters(self, module, input):
+        if is_uninitialized_parameter(self.g):
             x = input[0][0] if isinstance(input, tuple) else input[0]
             in_channels = x.shape[-1]
-            self.g = self.create_parameter([in_channels, self.out_channels * self.kernel_size],
-                                           default_initializer=XavierNormal())
+            out_channels, kernel_size = self.out_channels, self.kernel_size
+            self.g = self.create_parameter(
+                shape=[in_channels, out_channels * kernel_size])
             if not self.separate_gaussians:
-                self.mu = self.create_parameter([self.kernel_size, self.dim], default_initializer=XavierNormal())
-                self.sigma = self.create_parameter([self.kernel_size, self.dim], default_initializer=XavierNormal())
+                self.mu = self.create_parameter(
+                    shape=[kernel_size, self.dim])
+                self.sigma = self.create_parameter(
+                    shape=[kernel_size, self.dim])
             else:
-                self.mu = self.create_parameter([in_channels, self.out_channels, self.kernel_size, self.dim],
-                                                default_initializer=XavierNormal())
-                self.sigma = self.create_parameter([in_channels, self.out_channels, self.kernel_size, self.dim],
-                                                   default_initializer=XavierNormal())
-            layer._hook.remove()
-            del layer._hook
+                self.mu = self.create_parameter(
+                    shape=[in_channels, out_channels, kernel_size, self.dim])
+                self.sigma = self.create_parameter(
+                    shape=[in_channels, out_channels, kernel_size, self.dim])
+            glorot(self.g)
+            glorot(self.mu)
+            glorot(self.sigma)
+
+        module._hook.remove()
+        delattr(module, '_hook')
 
     def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj,
                 edge_attr: OptTensor = None, size: Size = None) -> Tensor:
         if isinstance(x, Tensor):
             x = (x, x)
 
+        # propagate_type: (x: OptPairTensor, edge_attr: OptTensor)
         if not self.separate_gaussians:
             out: OptPairTensor = (paddle.matmul(x[0], self.g), x[1])
             out = self.propagate(edge_index, x=out, edge_attr=edge_attr, size=size)

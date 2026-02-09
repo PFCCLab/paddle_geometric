@@ -25,7 +25,7 @@ def test_general_conv(kwargs):
     assert str(conv) == 'GeneralConv(8, 32)'
 
     out = conv(x, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, sparse_sizes=(4, 4))
@@ -35,7 +35,7 @@ def test_general_conv(kwargs):
     assert str(conv) == 'GeneralConv(8, 32)'
 
     out = conv(x, edge_index, edge_attr)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_attr, (4, 4))

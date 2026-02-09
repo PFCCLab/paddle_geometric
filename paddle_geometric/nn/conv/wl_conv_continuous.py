@@ -68,12 +68,13 @@ class WLConvContinuous(MessagePassing):
             dst_index = edge_index[1]
 
         if edge_weight is None:
-            edge_weight = x[0].new_ones(dst_index.shape[0])
+            edge_weight = paddle.ones([dst_index.shape[0]], dtype=x[0].dtype,
+                                      device=x[0].place)
 
         deg = scatter(edge_weight, dst_index, 0, out.shape[0], reduce='sum')
         deg_inv = 1. / deg
-        deg_inv.masked_fill_(deg_inv == float('inf'), 0)
-        out = deg_inv.unsqueeze(-1) * out
+        deg_inv = paddle.where(deg_inv == float('inf'), 0., deg_inv)
+        out = deg_inv.reshape([-1, 1]) * out
 
         x_dst = x[1]
         if x_dst is not None:
@@ -82,7 +83,7 @@ class WLConvContinuous(MessagePassing):
         return out
 
     def message(self, x_j: Tensor, edge_weight: OptTensor) -> Tensor:
-        return x_j if edge_weight is None else edge_weight.unsqueeze(-1) * x_j
+        return x_j if edge_weight is None else edge_weight.reshape([-1, 1]) * x_j
 
     def message_and_aggregate(self, adj_t: Adj, x: OptPairTensor) -> Tensor:
         return spmm(adj_t, x[0], reduce=self.aggr)

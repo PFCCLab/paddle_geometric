@@ -2,9 +2,9 @@ from typing import Callable, Tuple, Union
 
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer, Linear, LayerList
 
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.dense.linear import Linear
 from paddle_geometric.nn.inits import reset, zeros
 from paddle_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 
@@ -37,7 +37,7 @@ class NNConv(MessagePassing):
             maps edge features :obj:`edge_attr` of shape :obj:`[-1,
             num_edge_features]` to shape
             :obj:`[-1, in_channels * out_channels]`, *e.g.*, defined by
-            :class:`paddle.nn.Sequential`.
+            :class:`torch.nn.Sequential`.
         aggr (str, optional): The aggregation scheme to use
             (:obj:`"add"`, :obj:`"mean"`, :obj:`"max"`).
             (default: :obj:`"add"`)
@@ -75,12 +75,13 @@ class NNConv(MessagePassing):
         self.in_channels_l = in_channels[0]
 
         if root_weight:
-            self.lin = Linear(in_channels[1], out_channels, bias_attr=False)
+            self.lin = Linear(in_channels[1], out_channels, bias=False,
+                              weight_initializer='uniform')
 
         if bias:
-            self.bias = self.create_parameter([out_channels], is_bias=True)
+            self.bias = self.create_parameter(shape=[out_channels])
         else:
-            self.register_buffer('bias', None)
+            self.bias = None
 
         self.reset_parameters()
 
@@ -115,6 +116,9 @@ class NNConv(MessagePassing):
         return out
 
     def message(self, x_j: Tensor, edge_attr: Tensor) -> Tensor:
+        if edge_attr is None:
+            # Return zeros if no edge attributes
+            return paddle.zeros_like(x_j)
         weight = self.nn(edge_attr)
         weight = weight.reshape([-1, self.in_channels_l, self.out_channels])
         return paddle.matmul(x_j.unsqueeze(1), weight).squeeze(1)

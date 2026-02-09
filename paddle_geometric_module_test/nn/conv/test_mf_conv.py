@@ -14,7 +14,7 @@ def test_mf_conv():
     conv = MFConv(8, 32)
     assert str(conv) == 'MFConv(8, 32)'
     out = conv(x1, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, size=(4, 4)), out)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -34,11 +34,11 @@ def test_mf_conv():
     assert str(conv) == 'MFConv((8, 16), 32)'
 
     out1 = conv((x1, x2), edge_index)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, (4, 2)), out1)
 
     out2 = conv((x1, None), edge_index, (4, 2))
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, sparse_sizes=(4, 2))

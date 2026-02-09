@@ -3,10 +3,10 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer, LayerDict
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.dense import HeteroDictLinear, HeteroLinear
+from paddle_geometric.nn.inits import ones
 from paddle_geometric.nn.parameter_dict import ParameterDict
 from paddle_geometric.typing import Adj, EdgeType, Metadata, NodeType
 from paddle_geometric.utils import softmax
@@ -16,7 +16,21 @@ from paddle_geometric.utils.hetero import construct_bipartite_edge_index
 class HGTConv(MessagePassing):
     r"""The Heterogeneous Graph Transformer (HGT) operator from the
     `"Heterogeneous Graph Transformer" <https://arxiv.org/abs/2003.01332>`_
-    paper."""
+    paper.
+
+    Args:
+        in_channels (int or Dict[str, int]): Size of each input sample of every
+            node type, or :obj:`-1` to derive the size from the first input(s)
+            to the forward method.
+        out_channels (int): Size of each output sample.
+        metadata (Tuple[List[str], List[Tuple[str, str, str]]]): The metadata
+            of the heterogeneous graph, *i.e.* its node and edge types given
+            by a list of strings and a list of string triplets, respectively.
+        heads (int, optional): Number of multi-head-attentions.
+            (default: :obj:`1`)
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+    """
 
     def __init__(
         self,
@@ -61,29 +75,28 @@ class HGTConv(MessagePassing):
         self.v_rel = HeteroLinear(dim, dim, num_types, bias=False,
                                   is_sorted=True)
 
-        self.skip = ParameterDict({
-            node_type: self.create_parameter(shape=[1], default_initializer=paddle.nn.initializer.Constant(1.0))
+        self.skip = {
+            node_type: self.create_parameter(shape=[1])
             for node_type in self.node_types
-        })
+        }
 
-        self.p_rel = ParameterDict()
+        self.p_rel = {}
         for edge_type in self.edge_types:
-            edge_type = '__'.join(edge_type)
-            self.p_rel[edge_type] = self.create_parameter(shape=[1, heads], default_initializer=paddle.nn.initializer.Constant(1.0))
+            self.p_rel[edge_type] = self.create_parameter(shape=[1, heads])
 
         self.reset_parameters()
 
     def reset_parameters(self):
+        super().reset_parameters()
         self.kqv_lin.reset_parameters()
         self.out_lin.reset_parameters()
         self.k_rel.reset_parameters()
         self.v_rel.reset_parameters()
-        for key in self.skip.keys():
-            self.skip[key].set_value(paddle.ones([1]))
-        for key in self.p_rel.keys():
-            self.p_rel[key].set_value(paddle.ones([1, self.heads]))
+        ones(self.skip)
+        ones(self.p_rel)
 
     def _cat(self, x_dict: Dict[str, Tensor]) -> Tuple[Tensor, Dict[str, int]]:
+        """Concatenates a dictionary of features."""
         cumsum = 0
         outs: List[Tensor] = []
         offset: Dict[str, int] = {}
@@ -97,10 +110,12 @@ class HGTConv(MessagePassing):
         self, k_dict: Dict[str, Tensor], v_dict: Dict[str, Tensor],
         edge_index_dict: Dict[EdgeType, Adj]
     ) -> Tuple[Tensor, Tensor, Dict[EdgeType, int]]:
+        """Constructs the source node representations."""
         cumsum = 0
         num_edge_types = len(self.edge_types)
         H, D = self.heads, self.out_channels // self.heads
 
+        # Flatten into a single tensor with shape [num_edge_types * heads, D]:
         ks: List[Tensor] = []
         vs: List[Tensor] = []
         type_list: List[Tensor] = []
@@ -112,7 +127,8 @@ class HGTConv(MessagePassing):
             cumsum += N
 
             edge_type_offset = self.edge_types_map[edge_type]
-            type_vec = paddle.arange(H, dtype='int64').unsqueeze(-1).tile([1, N]) * num_edge_types + edge_type_offset
+            type_vec = paddle.arange(H, dtype='int64').reshape([H, 1]).tile(
+                [1, N]) * num_edge_types + edge_type_offset
 
             type_list.append(type_vec)
             ks.append(k_dict[src])
@@ -130,14 +146,29 @@ class HGTConv(MessagePassing):
     def forward(
         self,
         x_dict: Dict[NodeType, Tensor],
-        edge_index_dict: Dict[EdgeType, Adj]
+        edge_index_dict: Dict[EdgeType, Adj]  # Support both.
     ) -> Dict[NodeType, Optional[Tensor]]:
+        r"""Runs the forward pass of the module.
+
+        Args:
+            x_dict (Dict[str, Tensor]): A dictionary holding input node
+                features for each individual node type.
+            edge_index_dict (Dict[Tuple[str, str, str], Tensor]): A dictionary
+                holding graph connectivity information for each individual
+                edge type, either as a :class:`Tensor` of shape
+                :obj:`[2, num_edges]` or a :class:`SparseTensor`.
+
+        :rtype: Dict[str, Optional[Tensor]] - The output node embeddings for
+            each node type. If a node type does not receive any message, its
+            output will be set to :obj:`None`.
+        """
         F = self.out_channels
         H = self.heads
         D = F // H
 
         k_dict, q_dict, v_dict, out_dict = {}, {}, {}, {}
 
+        # Compute K, Q, V over node types:
         kqv_dict = self.kqv_lin(x_dict)
         for key, val in kqv_dict.items():
             k, q, v = paddle.split(val, 3, axis=1)
@@ -155,17 +186,19 @@ class HGTConv(MessagePassing):
 
         out = self.propagate(edge_index, k=k, q=q, v=v, edge_attr=edge_attr)
 
+        # Reconstruct output node embeddings dict:
         for node_type, start_offset in dst_offset.items():
             end_offset = start_offset + q_dict[node_type].shape[0]
             if node_type in self.dst_node_types:
                 out_dict[node_type] = out[start_offset:end_offset]
 
+        # Transform output node embeddings:
         a_dict = self.out_lin({
-            k:
-            paddle.nn.functional.gelu(v) if v is not None else v
+            k: paddle.nn.functional.gelu(v) if v is not None else v
             for k, v in out_dict.items()
         })
 
+        # Iterate over node types:
         for node_type, out in out_dict.items():
             out = a_dict[node_type]
 
