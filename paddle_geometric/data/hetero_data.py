@@ -356,7 +356,10 @@ class HeteroData(BaseData, FeatureStore, GraphStore):
                 return value.get_dim_size()
             return int(value.max()) + 1
         elif isinstance(store, EdgeStorage) and 'index' in key:
-            return paddle.to_tensor(store.size()).view(2, 1)
+            size_tuple = store.size()
+            # Replace None with 0 to avoid conversion errors
+            size_list = [s if s is not None else 0 for s in size_tuple]
+            return paddle.to_tensor(size_list).view(2, 1)
         else:
             return 0
 

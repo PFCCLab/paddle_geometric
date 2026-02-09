@@ -16,7 +16,7 @@ class HyperGraphData(Data):
     r"""A data object describing a hypergraph.
 
     The data object can hold node-level, link-level and graph-level attributes.
-    This object differs from a standard :obj:`~torch_geometric.data.Data`
+    This object differs from a standard :obj:`~paddle_geometric.data.Data`
     object by having hyperedges, i.e. edges that connect more
     than two nodes. For example, in the hypergraph scenario
     :math:`\mathcal{G} = (\mathcal{V}, \mathcal{E})` with
@@ -28,26 +28,26 @@ class HyperGraphData(Data):
 
         # hyper graph with two hyperedges
         # connecting 3 and 4 nodes, respectively
-        edge_index = torch.tensor([
+        edge_index = paddle.to_tensor([
             [0, 1, 2, 1, 2, 3, 4],
             [0, 0, 0, 1, 1, 1, 1],
         ])
 
     Args:
-        x (torch.Tensor, optional): Node feature matrix with shape
+        x (paddle.Tensor, optional): Node feature matrix with shape
             :obj:`[num_nodes, num_node_features]`. (default: :obj:`None`)
-        edge_index (LongTensor, optional): Hyperedge tensor
+        edge_index (paddle.Tensor, optional): Hyperedge tensor
             with shape :obj:`[2, num_edges*num_nodes_per_edge]`.
             Where `edge_index[1]` denotes the hyperedge index and
             `edge_index[0]` denotes the node indicies that are connected
             by the hyperedge. (default: :obj:`None`)
             (default: :obj:`None`)
-        edge_attr (torch.Tensor, optional): Edge feature matrix with shape
+        edge_attr (paddle.Tensor, optional): Edge feature matrix with shape
             :obj:`[num_edges, num_edge_features]`.
             (default: :obj:`None`)
-        y (torch.Tensor, optional): Graph-level or node-level ground-truth
+        y (paddle.Tensor, optional): Graph-level or node-level ground-truth
             labels with arbitrary shape. (default: :obj:`None`)
-        pos (torch.Tensor, optional): Node position matrix with shape
+        pos (paddle.Tensor, optional): Node position matrix with shape
             :obj:`[num_nodes, num_dimensions]`. (default: :obj:`None`)
         **kwargs (optional): Additional attributes.
     """
@@ -117,20 +117,21 @@ class HyperGraphData(Data):
             subgraph will be removed.
 
         Examples:
-            >>> x = torch.randn(4, 16)
-            >>> edge_index = torch.tensor([
+            >>> x = paddle.randn((4, 16))
+            >>> edge_index = paddle.to_tensor([
             ...     [0, 1, 0, 2, 1, 1, 2, 4],
             ...     [0, 0, 1, 1, 1, 2, 2, 2]
-            >>> ])
+            ... ])
             >>> data = HyperGraphData(x = x, edge_index = edge_index)
-            >>> subset = torch.tensor([1, 2, 4])
+            >>> subset = paddle.to_tensor([1, 2, 4])
             >>> subgraph = data.subgraph(subset)
             >>> subgraph.edge_index
-            tensor([[2, 1, 1, 2, 4],
-            [0, 0, 1, 1, 1]])
+            Tensor(shape=[2, 5], dtype=int64, place=Place(gpu:0), stop_gradient=True,
+                   [[2, 1, 1, 2, 4],
+                    [0, 0, 1, 1, 1]])
 
         Args:
-            subset (LongTensor or BoolTensor): The nodes to keep.
+            subset (paddle.Tensor): The nodes to keep. Can be LongTensor or BoolTensor.
         """
         assert self.edge_index is not None
         out = hyper_subgraph(subset, self.edge_index, relabel_nodes=True,
