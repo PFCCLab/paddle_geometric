@@ -188,8 +188,13 @@ paddle.flip = array_function_dispatch(_flip_dispatcher)(paddle.flip)
 default_index_select = paddle.index_select
 paddle.index_select = array_function_dispatch(_index_select_dispatcher)(
     paddle.index_select)
-default_narrow = paddle.narrow
-paddle.narrow = array_function_dispatch(_narrow_dispatcher)(paddle.narrow)
+def _narrow(input, dim, start, length):
+    """Implements torch.narrow functionality using paddle.slice."""
+    end = start + length
+    return paddle.slice(input, axes=[dim], starts=[start], ends=[end])
+
+default_narrow = _narrow
+paddle.narrow = array_function_dispatch(_narrow_dispatcher)(_narrow)
 default_unbind = paddle.unbind
 paddle.unbind = array_function_dispatch(_list_dispatcher)(paddle.unbind)
 default_matmul = paddle.matmul

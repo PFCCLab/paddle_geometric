@@ -84,10 +84,43 @@ class DataLoader(PaddleDataLoader):
         self.follow_batch = follow_batch
         self.exclude_keys = exclude_keys
 
-        super().__init__(
-            dataset,
+        # Paddle's DataLoader has issues with list-type datasets and custom collate_fn
+        # We'll use a simple batch_sampler approach instead
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.collater = Collater(dataset, follow_batch, exclude_keys)
+        
+        # Create a simple batch_sampler
+        from paddle.io import BatchSampler as PaddleBatchSampler
+        self.batch_sampler = PaddleBatchSampler(
+            dataset if hasattr(dataset, '__len__') else list(dataset),
             batch_size=batch_size,
             shuffle=shuffle,
-            collate_fn=Collater(dataset, follow_batch, exclude_keys),
-            **kwargs,
+            drop_last=kwargs.get('drop_last', False)
         )
+        
+        # Store other kwargs for compatibility
+        self._kwargs = kwargs
+        
+        # Initialize parent with batch_sampler only (no batch_size, shuffle, drop_last)
+        PaddleDataLoader.__init__(
+            self,
+            dataset,
+            batch_sampler=self.batch_sampler,
+            collate_fn=self.collater,
+            **kwargs
+        )
+    
+    def __iter__(self):
+        """Custom iteration to work around Paddle's DataLoader issues."""
+        # Use the batch_sampler directly and call collate_fn
+        for batch_indices in self.batch_sampler:
+            # Get data for this batch
+            if hasattr(self.dataset, '__getitem__'):
+                batch_data = [self.dataset[i] for i in batch_indices]
+            else:
+                batch_data = [self.dataset[i] for i in batch_indices]
+            
+            # Collate the batch
+            yield self.collater(batch_data)

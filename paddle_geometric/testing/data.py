@@ -17,9 +17,7 @@ def get_random_edge_index(
     coalesce: bool = False,
 ) -> Tensor:
     row = paddle.randint(0, num_src_nodes, shape=(num_edges, ), dtype=dtype)
-    row = row.to(device=device)
     col = paddle.randint(0, num_dst_nodes, shape=(num_edges, ), dtype=dtype)
-    col = col.to(device=device)
     edge_index = paddle.stack([row, col], axis=0)
 
     if coalesce:
@@ -43,7 +41,7 @@ def get_random_tensor_frame(
         paddle_frame.categorical: ['a', 'b', 'c'],
         paddle_frame.numerical: ['x', 'y'],
     }
-    y = paddle.randn([num_rows], device=device)
+    y = paddle.randn([num_rows])
 
     return paddle_frame.TensorFrame(
         feat_dict=feat_dict,
