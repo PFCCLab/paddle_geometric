@@ -10,17 +10,17 @@ from paddle_geometric.utils import to_paddle_csc_tensor
 def test_gated_graph_conv():
     x = paddle.randn(shape=[4, 16])
     edge_index = paddle.to_tensor([[0, 0, 0, 1, 2, 3], [1, 2, 3, 0, 0, 0]])
-    value = paddle.rand(edge_index.shape[1])
+    value = paddle.rand([edge_index.shape[1]])
     adj1 = to_paddle_csc_tensor(edge_index, size=(4, 4))
     adj2 = to_paddle_csc_tensor(edge_index, value, size=(4, 4))
 
     conv = GatedGraphConv(32, num_layers=3)
     assert str(conv) == 'GatedGraphConv(32, num_layers=3)'
     out1 = conv(x, edge_index)
-    assert out1.shape== (4, 32)
+    assert tuple(out1.shape)== (4, 32)
     assert paddle.allclose(conv(x, adj1.t()), out1, atol=1e-6)
     out2 = conv(x, edge_index, value)
-    assert out2.shape== (4, 32)
+    assert tuple(out2.shape)== (4, 32)
     assert paddle.allclose(conv(x, adj2.t()), out2, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

@@ -3,17 +3,19 @@ from typing import List, Tuple, Union
 
 import paddle
 import paddle.nn.functional as F
-from paddle import Tensor, nn
+from paddle import Tensor
 
 import paddle_geometric.typing
 from paddle_geometric.nn.conv import MessagePassing
-from paddle_geometric.nn.dense.linear import Linear
+from paddle_geometric.nn.dense.linear import Linear, is_uninitialized_parameter
 from paddle_geometric.nn.inits import uniform, zeros
 from paddle_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 from paddle_geometric.utils.repeat import repeat
 
-
-spline_basis = spline_weighting = None
+if paddle_geometric.typing.WITH_PADDLE_SPLINE_CONV:
+    from paddle_spline_conv import spline_basis, spline_weighting
+else:
+    spline_basis = spline_weighting = None
 
 
 class SplineConv(MessagePassing):
@@ -98,13 +100,15 @@ class SplineConv(MessagePassing):
             self.weight = paddle.create_parameter(
                 shape=[self.K, in_channels[0], out_channels], dtype='float32')
         else:
-            self.weight = paddle.nn.parameter.UninitializedParameter()
-            self._hook = self.register_forward_pre_hook(self.initialize_parameters)
+            self.weight = paddle.base.framework.EagerParamBase.from_tensor(
+                tensor=paddle.empty(shape=[0, 0, 0]))
+            self._hook = self.register_forward_pre_hook(
+                self.initialize_parameters)
 
         # Create the linear layer if root_weight is True
         if root_weight:
-            self.lin = Linear(in_channels[1], out_channels, bias_attr=False)
-            self.lin.weight.set_value(paddle.nn.initializer.Uniform()(self.lin.weight.shape))
+            self.lin = Linear(in_channels[1], out_channels, bias=False,
+                              weight_initializer='uniform')
 
         # Bias handling: Create parameter for bias or register as None
         if bias:
@@ -117,8 +121,8 @@ class SplineConv(MessagePassing):
 
     def reset_parameters(self):
         super().reset_parameters()
-        if not isinstance(self.weight, nn.UninitializedParameter):
-            size = self.weight.size(0) * self.weight.size(1)
+        if not is_uninitialized_parameter(self.weight):
+            size = self.weight.shape[0] * self.weight.shape[1]
             uniform(size, self.weight)
         if self.root_weight:
             self.lin.reset_parameters()
@@ -160,11 +164,13 @@ class SplineConv(MessagePassing):
         """
         Initialize parameters if weight is uninitialized.
         """
-        if isinstance(self.weight, paddle.nn.parameter.UninitializedParameter):
+        if is_uninitialized_parameter(self.weight):
             x = input[0][0] if isinstance(input, tuple) else input[0]
-            in_channels = x.size(-1)
-            self.weight.materialize((self.K, in_channels, self.out_channels))
-            size = self.weight.size(0) * self.weight.size(1)
+            in_channels = x.shape[-1]
+            self.weight = paddle.base.framework.EagerParamBase.from_tensor(
+                tensor=paddle.empty(
+                    shape=[self.K, in_channels, self.out_channels]))
+            size = self.weight.shape[0] * self.weight.shape[1]
             uniform(size, self.weight)
         module._hook.remove()
         delattr(module, '_hook')

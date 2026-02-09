@@ -1,14 +1,28 @@
+import typing
 from typing import Optional, Tuple, Union
 
 import paddle
 import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Linear, Layer
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.conv.gcn_conv import gcn_norm
-from paddle_geometric.typing import Adj, OptTensor, SparseTensor
+from paddle_geometric.nn.dense.linear import Linear
+from paddle_geometric.typing import PairTensor  # noqa
+from paddle_geometric.typing import (
+    Adj,
+    NoneType,
+    OptPairTensor,
+    OptTensor,
+    SparseTensor,
+)
+from paddle_geometric.utils import is_paddle_sparse_tensor
 from paddle_geometric.utils.sparse import set_sparse_value
+
+if typing.TYPE_CHECKING:
+    from typing import overload
+else:
+    from typing import overload
 
 
 
@@ -64,6 +78,10 @@ class FAConv(MessagePassing):
           :math:`((|\mathcal{V}|, F), ((2, |\mathcal{E}|),
           (|\mathcal{E}|)))` if :obj:`return_attention_weights=True`
     """
+    _cached_edge_index: Optional[OptPairTensor]
+    _cached_adj_t: Optional[SparseTensor]
+    _alpha: OptTensor
+
     def __init__(self, channels: int, eps: float = 0.1, dropout: float = 0.0,
                  cached: bool = False, add_self_loops: bool = True,
                  normalize: bool = True, **kwargs):
@@ -82,16 +100,50 @@ class FAConv(MessagePassing):
         self._cached_adj_t = None
         self._alpha = None
 
-        self.att_l = Linear(channels, 1, bias_attr=False)
-        self.att_r = Linear(channels, 1, bias_attr=False)
+        self.att_l = Linear(channels, 1, bias=False)
+        self.att_r = Linear(channels, 1, bias=False)
 
         self.reset_parameters()
 
     def reset_parameters(self):
+        super().reset_parameters()
         self.att_l.reset_parameters()
         self.att_r.reset_parameters()
         self._cached_edge_index = None
         self._cached_adj_t = None
+
+    @overload
+    def forward(
+        self,
+        x: Tensor,
+        x_0: Tensor,
+        edge_index: Adj,
+        edge_weight: OptTensor = None,
+        return_attention_weights: NoneType = None,
+    ) -> Tensor:
+        pass
+
+    @overload
+    def forward(  # noqa: F811
+        self,
+        x: Tensor,
+        x_0: Tensor,
+        edge_index: Tensor,
+        edge_weight: OptTensor = None,
+        return_attention_weights: bool = None,
+    ) -> Tuple[Tensor, Tuple[Tensor, Tensor]]:
+        pass
+
+    @overload
+    def forward(  # noqa: F811
+        self,
+        x: Tensor,
+        x_0: Tensor,
+        edge_index: SparseTensor,
+        edge_weight: OptTensor = None,
+        return_attention_weights: bool = None,
+    ) -> Tuple[Tensor, SparseTensor]:
+        pass
 
     def forward(
         self,
@@ -124,7 +176,7 @@ class FAConv(MessagePassing):
                 cache = self._cached_edge_index
                 if cache is None:
                     edge_index, edge_weight = gcn_norm(
-                        edge_index, None, x.shape[0], False,
+                        edge_index, None, x.shape[self.node_dim], False,
                         self.add_self_loops, self.flow, dtype=x.dtype)
                     if self.cached:
                         self._cached_edge_index = (edge_index, edge_weight)
@@ -136,14 +188,15 @@ class FAConv(MessagePassing):
                 cache = self._cached_adj_t
                 if cache is None:
                     edge_index = gcn_norm(
-                        edge_index, None, x.shape[0], False,
+                        edge_index, None, x.shape[self.node_dim], False,
                         self.add_self_loops, self.flow, dtype=x.dtype)
                     if self.cached:
                         self._cached_adj_t = edge_index
                 else:
                     edge_index = cache
         else:
-            if isinstance(edge_index, Tensor):
+            if isinstance(edge_index, Tensor) and not is_paddle_sparse_tensor(
+                    edge_index):
                 assert edge_weight is not None
             elif isinstance(edge_index, SparseTensor):
                 assert edge_index.has_value()
@@ -165,7 +218,8 @@ class FAConv(MessagePassing):
         if isinstance(return_attention_weights, bool):
             assert alpha is not None
             if isinstance(edge_index, Tensor):
-                if paddle.is_sparse(edge_index):
+                if is_paddle_sparse_tensor(edge_index):
+                    # TODO TorchScript requires to return a tuple
                     adj = set_sparse_value(edge_index, alpha)
                     return out, (adj, alpha)
                 else:

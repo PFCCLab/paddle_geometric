@@ -19,7 +19,7 @@ def test_graph_conv():
     conv = GraphConv(8, 32)
     assert str(conv) == 'GraphConv(8, 32)'
     out1 = conv(x1, edge_index)
-    assert out1.shape== (4, 32)
+    assert tuple(out1.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, size=(4, 4)), out1, atol=1e-6)
     assert paddle.allclose(conv(x1, adj1.t()), out1, atol=1e-6)
 
@@ -33,7 +33,7 @@ def test_graph_conv():
         assert paddle.allclose(conv(x1, adj3.t()), out1, atol=1e-6)
 
     out2 = conv(x1, edge_index, value)
-    assert out2.shape== (4, 32)
+    assert tuple(out2.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, value, size=(4, 4)), out2,
                           atol=1e-6)
     assert paddle.allclose(conv(x1, adj2.t()), out2, atol=1e-6)
@@ -66,7 +66,7 @@ def test_graph_conv():
     conv = GraphConv((8, 16), 32)
     assert str(conv) == 'GraphConv((8, 16), 32)'
     out1 = conv((x1, x2), edge_index)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, size=(4, 2)), out1)
     assert paddle.allclose(conv((x1, x2), adj1.t()), out1, atol=1e-6)
 
@@ -76,7 +76,7 @@ def test_graph_conv():
     ).allclose(out1, atol=1e-6)
 
     out2 = conv((x1, None), edge_index, size=(4, 2))
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
     assert paddle.allclose(conv((x1, None), adj1.t()), out2, atol=1e-6)
 
     assert conv(
@@ -85,7 +85,7 @@ def test_graph_conv():
     ).allclose(out2, atol=1e-6)
 
     out3 = conv((x1, x2), edge_index, value)
-    assert out3.shape== (2, 32)
+    assert tuple(out3.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, value, (4, 2)), out3)
     assert paddle.allclose(conv((x1, x2), adj2.t()), out3, atol=1e-6)
 
@@ -96,7 +96,7 @@ def test_graph_conv():
     ).allclose(out3, atol=1e-6)
 
     out4 = conv((x1, None), edge_index, value, size=(4, 2))
-    assert out4.shape== (2, 32)
+    assert tuple(out4.shape)== (2, 32)
     assert paddle.allclose(conv((x1, None), adj2.t()), out4, atol=1e-6)
 
     assert conv(
@@ -137,7 +137,7 @@ class EdgeGraphConv(GraphConv):
 def test_inheritance():
     x = paddle.randn(shape=[4, 8])
     edge_index = paddle.to_tensor([[0, 1, 2, 3], [0, 0, 1, 1]])
-    edge_weight = paddle.rand(4)
+    edge_weight = paddle.rand([4])
 
     conv = EdgeGraphConv(8, 16)
-    assert conv(x, edge_index, edge_weight).shape== (4, 16)
+    assert tuple(conv(x, edge_index, edge_weight).shape)== (4, 16)

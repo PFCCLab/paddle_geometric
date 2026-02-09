@@ -2,7 +2,6 @@ from typing import Final, Tuple, Union
 
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer
 
 from paddle_geometric import EdgeIndex
 from paddle_geometric.nn.conv import MessagePassing
@@ -57,7 +56,7 @@ class GraphConv(MessagePassing):
         bias: bool = True,
         **kwargs,
     ):
-        super().__init__(aggr=aggr, **kwargs)
+        super().__init__(aggr, **kwargs)
 
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -65,8 +64,8 @@ class GraphConv(MessagePassing):
         if isinstance(in_channels, int):
             in_channels = (in_channels, in_channels)
 
-        self.lin_rel = Linear(in_channels[0], out_channels, bias_attr=bias)
-        self.lin_root = Linear(in_channels[1], out_channels, bias_attr=False)
+        self.lin_rel = Linear(in_channels[0], out_channels, bias=bias)
+        self.lin_root = Linear(in_channels[1], out_channels, bias=False)
 
         self.reset_parameters()
 
@@ -107,7 +106,7 @@ class GraphConv(MessagePassing):
                 other=x[0],
                 input_value=edge_weight,
                 reduce=self.aggr,
-                transpose_x=True,
+                transpose=True,
             )
 
         return spmm(edge_index, x[0], reduce=self.aggr)

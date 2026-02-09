@@ -1,20 +1,72 @@
-from typing import Union, Tuple, Optional
+from typing import Optional, Tuple, Union
 
 import paddle
 import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Layer, Linear, Identity, LayerList
+
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.dense.linear import Linear
+from paddle_geometric.nn.inits import glorot
+from paddle_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 from paddle_geometric.utils import softmax
 
+
 class GeneralConv(MessagePassing):
+    r"""A general GNN layer adapted from the `"Design Space for Graph Neural
+    Networks" <https://arxiv.org/abs/2011.08843>`_ paper.
+
+    Args:
+        in_channels (int or tuple): Size of each input sample, or :obj:`-1` to
+            derive the size from the first input(s) to the forward method.
+            A tuple corresponds to the sizes of source and target
+            dimensionalities.
+        out_channels (int): Size of each output sample.
+        in_edge_channels (int, optional): Size of each input edge.
+            (default: :obj:`None`)
+        aggr (str, optional): The aggregation scheme to use
+            (:obj:`"add"`, :obj:`"mean"`, :obj:`"max"`).
+            (default: :obj:`"mean"`)
+        skip_linear (bool, optional): Whether apply linear function in skip
+            connection. (default: :obj:`False`)
+        directed_msg (bool, optional): If message passing is directed;
+            otherwise, message passing is bi-directed. (default: :obj:`True`)
+        heads (int, optional): Number of message passing ensembles.
+            If :obj:`heads > 1`, the GNN layer will output an ensemble of
+            multiple messages.
+            If attention is used (:obj:`attention=True`), this corresponds to
+            multi-head attention. (default: :obj:`1`)
+        attention (bool, optional): Whether to add attention to message
+            computation. (default: :obj:`False`)
+        attention_type (str, optional): Type of attention: :obj:`"additive"`,
+            :obj:`"dot_product"`. (default: :obj:`"additive"`)
+        l2_normalize (bool, optional): If set to :obj:`True`, output features
+            will be :math:`\ell_2`-normalized, *i.e.*,
+            :math:`\frac{\mathbf{x}^{\prime}_i}
+            {\| \mathbf{x}^{\prime}_i \|_2}`.
+            (default: :obj:`False`)
+        bias (bool, optional): If set to :obj:`False`, the layer will not learn
+            an additive bias. (default: :obj:`True`)
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
+          if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`,
+          edge attributes :math:`(|\mathcal{E}|, D)` *(optional)*
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V}_t|, F_{out})` if bipartite
+    """
+
     def __init__(
         self,
         in_channels: Union[int, Tuple[int, int]],
         out_channels: Optional[int],
         in_edge_channels: Optional[int] = None,
         aggr: str = "add",
-        skip_linear: str = False,
+        skip_linear: bool = False,
         directed_msg: bool = True,
         heads: int = 1,
         attention: bool = False,
@@ -41,62 +93,66 @@ class GeneralConv(MessagePassing):
             in_channels = (in_channels, in_channels)
 
         if self.directed_msg:
-            self.lin_msg = Linear(in_channels[0], out_channels * self.heads, bias_attr=bias)
+            self.lin_msg = Linear(in_channels[0], out_channels * self.heads,
+                                  bias=bias)
         else:
-            self.lin_msg = Linear(in_channels[0], out_channels * self.heads, bias_attr=bias)
-            self.lin_msg_i = Linear(in_channels[0], out_channels * self.heads, bias_attr=bias)
+            self.lin_msg = Linear(in_channels[0], out_channels * self.heads,
+                                  bias=bias)
+            self.lin_msg_i = Linear(in_channels[0], out_channels * self.heads,
+                                    bias=bias)
 
         if self.skip_linear or self.in_channels != self.out_channels:
-            self.lin_self = Linear(in_channels[1], out_channels, bias_attr=bias)
+            self.lin_self = Linear(in_channels[1], out_channels, bias=bias)
         else:
-            self.lin_self = Identity()
+            self.lin_self = paddle.nn.Identity()
 
         if self.in_edge_channels is not None:
-            self.lin_edge = Linear(in_edge_channels, out_channels * self.heads, bias_attr=bias)
+            self.lin_edge = Linear(in_edge_channels, out_channels * self.heads,
+                                   bias=bias)
 
-        # Attention parameters
         if self.attention:
             if self.attention_type == 'additive':
                 self.att_msg = self.create_parameter(
-                    shape=[1, self.heads, self.out_channels],
-                    default_initializer=paddle.nn.initializer.XavierUniform())
+                    shape=[1, self.heads, self.out_channels])
             elif self.attention_type == 'dot_product':
-                self.scaler = paddle.to_tensor(paddle.sqrt(paddle.to_tensor(out_channels, dtype='float32')))
+                scaler = paddle.to_tensor(out_channels, dtype='float32').sqrt()
+                self.register_buffer('scaler', scaler)
             else:
-                raise ValueError(f"Attention type '{self.attention_type}' not supported")
+                raise ValueError(
+                    f"Attention type '{self.attention_type}' not supported")
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.lin_msg.weight.set_value(paddle.nn.initializer.XavierUniform()(self.lin_msg.weight.shape))
+        super().reset_parameters()
+        self.lin_msg.reset_parameters()
         if hasattr(self.lin_self, 'reset_parameters'):
             self.lin_self.reset_parameters()
         if self.in_edge_channels is not None:
-            self.lin_edge.weight.set_value(paddle.nn.initializer.XavierUniform()(self.lin_edge.weight.shape))
+            self.lin_edge.reset_parameters()
         if self.attention and self.attention_type == 'additive':
-            paddle.nn.initializer.XavierUniform()(self.att_msg)
+            glorot(self.att_msg)
 
     def forward(
         self,
-        x: Union[Tensor, Tuple[Tensor, Tensor]],
-        edge_index: Tensor,
-        edge_attr: Optional[Tensor] = None,
-        size: Optional[Tuple[int, int]] = None,
+        x: Union[Tensor, OptPairTensor],
+        edge_index: Adj,
+        edge_attr: OptTensor = None,
+        size: Size = None,
     ) -> Tensor:
 
         if isinstance(x, Tensor):
-            x = (x, x)
+            x: OptPairTensor = (x, x)
         x_self = x[1]
-
-        # propagate_type: (x: Tuple[Tensor, Tensor], edge_attr: Tensor)
+        # propagate_type: (x: OptPairTensor, edge_attr: OptTensor)
         out = self.propagate(edge_index, x=x, size=size, edge_attr=edge_attr)
-        out = out.mean(axis=1)  # Aggregating heads
+        out = out.mean(axis=1)  # todo: other approach to aggregate heads
         out = out + self.lin_self(x_self)
         if self.normalize_l2:
             out = F.normalize(out, p=2, axis=-1)
         return out
 
-    def message_basic(self, x_i: Tensor, x_j: Tensor, edge_attr: Optional[Tensor]):
+    def message_basic(self, x_i: Tensor, x_j: Tensor, edge_attr: OptTensor):
         if self.directed_msg:
             x_j = self.lin_msg(x_j)
         else:

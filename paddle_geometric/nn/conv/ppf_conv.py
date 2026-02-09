@@ -4,7 +4,14 @@ import paddle
 from paddle import Tensor
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.inits import reset
-from paddle_geometric.typing import Adj, OptTensor, PairOptTensor, PairTensor, SparseTensor
+from paddle_geometric.typing import (
+    Adj,
+    OptTensor,
+    PairOptTensor,
+    PairTensor,
+    SparseTensor,
+    paddle_sparse,
+)
 from paddle_geometric.utils import add_self_loops, remove_self_loops
 
 
@@ -30,6 +37,47 @@ class PPFConv(MessagePassing):
     r"""The PPFNet operator from the `"PPFNet: Global Context Aware Local
     Features for Robust 3D Point Matching" <https://arxiv.org/abs/1802.02669>`_
     paper.
+
+    .. math::
+        \mathbf{x}^{\prime}_i = \gamma_{\mathbf{\Theta}} \left( \max_{j \in
+        \mathcal{N}(i) \cup \{ i \}} h_{\mathbf{\Theta}} ( \mathbf{x}_j, \|
+        \mathbf{d_{j,i}} \|, \angle(\mathbf{n}_i, \mathbf{d_{j,i}}),
+        \angle(\mathbf{n}_j, \mathbf{d_{j,i}}), \angle(\mathbf{n}_i,
+        \mathbf{n}_j) \right)
+
+    where :math:`\gamma_{\mathbf{\Theta}}` and :math:`h_{\mathbf{\Theta}}`
+    denote neural networks, *.i.e.* MLPs, which takes in node features and
+    :class:`paddle_geometric.transforms.PointPairFeatures`.
+
+    Args:
+        local_nn (paddle.nn.Layer, optional): A neural network
+            :math:`h_{\mathbf{\Theta}}` that maps node features :obj:`x` and
+            relative spatial coordinates :obj:`pos_j - pos_i` of shape
+            :obj:`[-1, in_channels + num_dimensions]` to shape
+            :obj:`[-1, out_channels]`, *e.g.*, defined by
+            :class:`paddle.nn.Sequential`. (default: :obj:`None`)
+        global_nn (paddle.nn.Layer, optional): A neural network
+            :math:`\gamma_{\mathbf{\Theta}}` that maps aggregated node features
+            of shape :obj:`[-1, out_channels]` to shape :obj:`[-1,
+            final_out_channels]`, *e.g.*, defined by
+            :class:`paddle.nn.Sequential`. (default: :obj:`None`)
+        add_self_loops (bool, optional): If set to :obj:`False`, will not add
+            self-loops to the input graph. (default: :obj:`True`)
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
+          if bipartite,
+          positions :math:`(|\mathcal{V}|, 3)` or
+          :math:`((|\mathcal{V_s}|, 3), (|\mathcal{V_t}|, 3))` if bipartite,
+          point normals :math:`(|\mathcal{V}, 3)` or
+          :math:`((|\mathcal{V_s}|, 3), (|\mathcal{V_t}|, 3))` if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V}_t|, F_{out})` if bipartite
     """
     def __init__(self, local_nn: Optional[Callable] = None,
                  global_nn: Optional[Callable] = None,

@@ -11,7 +11,7 @@ from paddle_geometric.typing import SparseTensor
 def test_heat_conv(concat):
     x = paddle.randn(shape=[4, 8])
     edge_index = paddle.to_tensor([[0, 1, 2, 3], [0, 0, 1, 1]])
-    edge_attr = paddle.randn(shape=[(4, 2]))
+    edge_attr = paddle.randn(shape=[4, 2])
     node_type = paddle.to_tensor([0, 0, 1, 2])
     edge_type = paddle.to_tensor([0, 2, 1, 2])
 
@@ -21,7 +21,7 @@ def test_heat_conv(concat):
     assert str(conv) == 'HEATConv(8, 16, heads=2)'
 
     out = conv(x, edge_index, node_type, edge_type, edge_attr)
-    assert out.shape== (4, 32 if concat else 16)
+    assert tuple(out.shape)== (4, 32 if concat else 16)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_attr, (4, 4))

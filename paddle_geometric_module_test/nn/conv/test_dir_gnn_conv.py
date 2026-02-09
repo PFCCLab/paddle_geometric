@@ -11,7 +11,7 @@ def test_dir_gnn_conv():
     assert str(conv) == 'DirGNNConv(SAGEConv(16, 32, aggr=mean), alpha=0.5)'
 
     out = conv(x, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
 
 def test_static_dir_gnn_conv():
@@ -21,4 +21,4 @@ def test_static_dir_gnn_conv():
     conv = DirGNNConv(SAGEConv(16, 32))
 
     out = conv(x, edge_index)
-    assert out.shape== (3, 4, 32)
+    assert tuple(out.shape)== (3, 4, 32)

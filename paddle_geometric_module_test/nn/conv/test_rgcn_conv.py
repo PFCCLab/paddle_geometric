@@ -15,7 +15,7 @@ confs = [(None, None), (2, None), (None, 2)]
 def test_rgcn_conv_equality(conf, device):
     num_bases, num_blocks = conf
 
-    x1 = paddle.randn(shape=[4, 4, place=device])
+    x1 = paddle.randn([4, 4], device=device)
     edge_index = paddle.to_tensor([
         [0, 1, 1, 2, 2, 3],
         [0, 0, 1, 0, 1, 1],
@@ -52,10 +52,10 @@ def test_rgcn_conv_equality(conf, device):
 def test_rgcn_conv_basic(cls, conf, device):
     num_bases, num_blocks = conf
 
-    x1 = paddle.randn(shape=[4, 4, place=device])
-    x2 = paddle.randn(shape=[2, 16, place=device])
-    idx1 = paddle.arange(4, place=device)
-    idx2 = paddle.arange(2, place=device)
+    x1 = paddle.randn([4, 4], device=device)
+    x2 = paddle.randn([2, 16], device=device)
+    idx1 = paddle.arange(4, device=device)
+    idx2 = paddle.arange(2, device=device)
     edge_index = paddle.to_tensor([
         [0, 1, 1, 2, 2, 3],
         [0, 0, 1, 0, 1, 1],
@@ -66,7 +66,7 @@ def test_rgcn_conv_basic(cls, conf, device):
     assert str(conv) == f'{cls.__name__}(4, 32, num_relations=2)'
 
     out1 = conv(x1, edge_index, edge_type)
-    assert out1.shape== (4, 32)
+    assert tuple(out1.shape)== (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_type, (4, 4))
@@ -75,7 +75,7 @@ def test_rgcn_conv_basic(cls, conf, device):
     if num_blocks is None:
         out2 = conv(None, edge_index, edge_type)
         assert paddle.allclose(conv(idx1, edge_index, edge_type), out2, 1e-3)
-        assert out2.shape== (4, 32)
+        assert tuple(out2.shape)== (4, 32)
         if paddle_geometric.typing.WITH_PADDLE_SPARSE:
             assert paddle.allclose(conv(None, adj.t()), out2, atol=1e-3)
             assert paddle.allclose(conv(idx1, adj.t()), out2, atol=1e-3)
@@ -100,7 +100,7 @@ def test_rgcn_conv_basic(cls, conf, device):
     assert str(conv) == f'{cls.__name__}((4, 16), 32, num_relations=2)'
 
     out1 = conv((x1, x2), edge_index, edge_type)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, edge_type, (4, 2))
@@ -108,7 +108,7 @@ def test_rgcn_conv_basic(cls, conf, device):
 
     if num_blocks is None:
         out2 = conv((None, idx2), edge_index, edge_type)
-        assert out2.shape== (2, 32)
+        assert tuple(out2.shape)== (2, 32)
         assert paddle.allclose(conv((idx1, idx2), edge_index, edge_type), out2,
                               atol=1e-3)
         if paddle_geometric.typing.WITH_PADDLE_SPARSE:

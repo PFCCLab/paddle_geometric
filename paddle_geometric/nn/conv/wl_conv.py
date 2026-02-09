@@ -40,7 +40,7 @@ class WLConv(paddle.nn.Layer):
     @paddle.no_grad()
     def forward(self, x: Tensor, edge_index: Adj) -> Tensor:
         r"""Runs the forward pass of the module."""
-        if x.dim() > 1:
+        if x.ndim > 1:
             assert (x.sum(axis=-1) == 1).sum() == x.shape[0]
             x = x.argmax(axis=-1)  # one-hot -> integer.
         assert x.dtype == paddle.int64
@@ -59,12 +59,16 @@ class WLConv(paddle.nn.Layer):
 
         out = []
         for node, neighbors in zip(x.tolist(), x[row].split(deg)):
-            idx = hash(tuple([node] + neighbors.sort()[0].tolist()))
+            neighbors_sorted = neighbors.sort()[0]
+            neighbors_list = neighbors_sorted.tolist()
+            if not isinstance(neighbors_list, list):
+                neighbors_list = [neighbors_list]
+            idx = hash(tuple([node] + neighbors_list))
             if idx not in self.hashmap:
                 self.hashmap[idx] = len(self.hashmap)
             out.append(self.hashmap[idx])
 
-        return paddle.to_tensor(out, dtype=paddle.int64, device=x.device)
+        return paddle.to_tensor(out, dtype=paddle.int64)
 
     def histogram(self, x: Tensor, batch: Optional[Tensor] = None,
                   norm: bool = False) -> Tensor:
@@ -72,7 +76,7 @@ class WLConv(paddle.nn.Layer):
         the respective graphs (separated by :obj:`batch`).
         """
         if batch is None:
-            batch = paddle.zeros([x.shape[0]], dtype=paddle.int64, device=x.device)
+            batch = paddle.zeros([x.shape[0]], dtype=paddle.int64)
 
         num_colors = len(self.hashmap)
         batch_size = int(batch.max()) + 1

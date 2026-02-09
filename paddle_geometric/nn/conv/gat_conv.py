@@ -1,10 +1,8 @@
-import typing
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, overload
 
 import paddle
 import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Linear
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.dense.linear import Linear
@@ -25,12 +23,51 @@ from paddle_geometric.utils import (
     softmax,
 )
 from paddle_geometric.utils.sparse import set_sparse_value
-from typing import overload
 
 
 class GATConv(MessagePassing):
     r"""The graph attentional operator from the `"Graph Attention Networks"
     <https://arxiv.org/abs/1710.10903>`_ paper.
+
+    .. math::
+        \mathbf{x}^{\prime}_i = \sum_{j \in \mathcal{N}(i) \cup \{ i \}}
+        \alpha_{i,j}\mathbf{\Theta}_t\mathbf{x}_{j},
+
+    where the attention coefficients :math:`\alpha_{i,j}` are computed as
+
+    .. math::
+        \alpha_{i,j} =
+        \frac{
+        \exp\left(\mathrm{LeakyReLU}\left(
+        \mathbf{a}^{\top}_{s} \mathbf{\Theta}_{s}\mathbf{x}_i
+        + \mathbf{a}^{\top}_{t} \mathbf{\Theta}_{t}\mathbf{x}_j
+        \right)\right)}
+        {\sum_{k \in \mathcal{N}(i) \cup \{ i \}}
+        \exp\left(\mathrm{LeakyReLU}\left(
+        \mathbf{a}^{\top}_{s} \mathbf{\Theta}_{s}\mathbf{x}_i
+        + \mathbf{a}^{\top}_{t} \mathbf{\Theta}_{t}\mathbf{x}_k
+        \right)\right)}.
+
+    If the graph has multi-dimensional edge features :math:`\mathbf{e}_{i,j}`,
+    the attention coefficients :math:`\alpha_{i,j}` are computed as
+
+    .. math::
+        \alpha_{i,j} =
+        \frac{
+        \exp\left(\mathrm{LeakyReLU}\left(
+        \mathbf{a}^{\top}_{s} \mathbf{\Theta}_{s}\mathbf{x}_i
+        + \mathbf{a}^{\top}_{t} \mathbf{\Theta}_{t}\mathbf{x}_j
+        + \mathbf{a}^{\top}_{e} \mathbf{\Theta}_{e} \mathbf{e}_{i,j}
+        \right)\right)}
+        {\sum_{k \in \mathcal{N}(i) \cup \{ i \}}
+        \exp\left(\mathrm{LeakyReLU}\left(
+        \mathbf{a}^{\top}_{s} \mathbf{\Theta}_{s}\mathbf{x}_i
+        + \mathbf{a}^{\top}_{t} \mathbf{\Theta}_{t}\mathbf{x}_k
+        + \mathbf{a}^{\top}_{e} \mathbf{\Theta}_{e} \mathbf{e}_{i,k}
+        \right)\right)}.
+
+    If the graph is not bipartite, :math:`\mathbf{\Theta}_{s} =
+    \mathbf{\Theta}_{t}`.
 
     Args:
         in_channels (int or tuple): Size of each input sample, or :obj:`-1` to
@@ -53,12 +90,35 @@ class GATConv(MessagePassing):
         edge_dim (int, optional): Edge feature dimensionality (in case
             there are any). (default: :obj:`None`)
         fill_value (float or Tensor or str, optional): The way to
-            generate edge features of self-loops (in case :obj:`edge_dim != None`).
+            generate edge features of self-loops (in case
+            :obj:`edge_dim != None`).
+            If given as :obj:`float` or :class:`Tensor`, edge features of
+            self-loops will be directly given by :obj:`fill_value`.
+            If given as :obj:`str`, edge features of self-loops are computed by
+            aggregating all features of edges that point to the specific node,
+            according to a reduce operation. (:obj:`"add"`, :obj:`"mean"`,
+            :obj:`"min"`, :obj:`"max"`, :obj:`"mul"`). (default: :obj:`"mean"`)
         bias (bool, optional): If set to :obj:`False`, the layer will not learn
             an additive bias. (default: :obj:`True`)
         residual (bool, optional): If set to :obj:`True`, the layer will add
             a learnable skip-connection. (default: :obj:`False`)
-        **kwargs (optional): Additional arguments of :class:`MessagePassing`.
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
+          if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`,
+          edge features :math:`(|\mathcal{E}|, D)` *(optional)*
+        - **output:** node features :math:`(|\mathcal{V}|, H * F_{out})` or
+          :math:`((|\mathcal{V}_t|, H * F_{out})` if bipartite.
+          If :obj:`return_attention_weights=True`, then
+          :math:`((|\mathcal{V}|, H * F_{out}),
+          ((2, |\mathcal{E}|), (|\mathcal{E}|, H)))`
+          or :math:`((|\mathcal{V_t}|, H * F_{out}), ((2, |\mathcal{E}|),
+          (|\mathcal{E}|, H)))` if bipartite
     """
     def __init__(
         self,
@@ -92,21 +152,25 @@ class GATConv(MessagePassing):
         # Linear layers for source and target node transformations:
         self.lin = self.lin_src = self.lin_dst = None
         if isinstance(in_channels, int):
-            self.lin = Linear(in_channels, heads * out_channels, bias_attr=False)
+            self.lin = Linear(in_channels, heads * out_channels, bias=False,
+                              weight_initializer='glorot')
         else:
-            self.lin_src = Linear(in_channels[0], heads * out_channels, bias_attr=False)
-            self.lin_dst = Linear(in_channels[1], heads * out_channels, bias_attr=False)
+            self.lin_src = Linear(in_channels[0], heads * out_channels, False,
+                                  weight_initializer='glorot')
+            self.lin_dst = Linear(in_channels[1], heads * out_channels, False,
+                                  weight_initializer='glorot')
 
         # Parameters for computing attention coefficients:
         self.att_src = self.create_parameter(shape=[1, heads, out_channels])
         self.att_dst = self.create_parameter(shape=[1, heads, out_channels])
 
         if edge_dim is not None:
-            self.lin_edge = Linear(edge_dim, heads * out_channels, bias_attr=False)
+            self.lin_edge = Linear(edge_dim, heads * out_channels, bias=False,
+                                   weight_initializer='glorot')
             self.att_edge = self.create_parameter(shape=[1, heads, out_channels])
         else:
             self.lin_edge = None
-            self.att_edge = None
+            self.register_parameter('att_edge', None)
 
 
         # Optional residual connection:
@@ -116,10 +180,11 @@ class GATConv(MessagePassing):
             self.res = Linear(
                 in_channels if isinstance(in_channels, int) else in_channels[1],
                 total_out_channels,
-                bias_attr=False,
+                bias=False,
+                weight_initializer='glorot',
             )
         else:
-            self.res =None
+            self.res = None
 
         # Optional bias:
         if bias:
@@ -143,8 +208,10 @@ class GATConv(MessagePassing):
             self.res.reset_parameters()
         glorot(self.att_src)
         glorot(self.att_dst)
-        glorot(self.att_edge)
-        zeros(self.bias)
+        if self.att_edge is not None:
+            glorot(self.att_edge)
+        if self.bias is not None:
+            zeros(self.bias)
 
     @overload
     def forward(
@@ -221,23 +288,23 @@ class GATConv(MessagePassing):
         # We first transform the input node features. If a tuple is passed, we
         # transform source and target node features via separate weights:
         if isinstance(x, Tensor):
-            assert x.dim() == 2, "Static graphs not supported in 'GATConv'"
+            assert x.ndim == 2, "Static graphs not supported in 'GATConv'"
 
             if self.res is not None:
                 res = self.res(x)
 
             if self.lin is not None:
-                x_src = x_dst = self.lin(x).view(-1, H, C)
+                x_src = x_dst = self.lin(x).reshape([-1, H, C])
             else:
                 # If the module is initialized as bipartite, transform source
                 # and destination node features separately:
                 assert self.lin_src is not None and self.lin_dst is not None
-                x_src = self.lin_src(x).view(-1, H, C)
-                x_dst = self.lin_dst(x).view(-1, H, C)
+                x_src = self.lin_src(x).reshape([-1, H, C])
+                x_dst = self.lin_dst(x).reshape([-1, H, C])
 
         else:  # Tuple of source and target node features:
             x_src, x_dst = x
-            assert x_src.dim() == 2, "Static graphs not supported in 'GATConv'"
+            assert x_src.ndim == 2, "Static graphs not supported in 'GATConv'"
 
             if x_dst is not None and self.res is not None:
                 res = self.res(x_dst)
@@ -246,31 +313,32 @@ class GATConv(MessagePassing):
                 # If the module is initialized as non-bipartite, we expect that
                 # source and destination node features have the same shape and
                 # that they their transformations are shared:
-                x_src = self.lin(x_src).view(-1, H, C)
+                x_src = self.lin(x_src).reshape([-1, H, C])
                 if x_dst is not None:
-                    x_dst = self.lin(x_dst).view(-1, H, C)
+                    x_dst = self.lin(x_dst).reshape([-1, H, C])
             else:
                 assert self.lin_src is not None and self.lin_dst is not None
 
-                x_src = self.lin_src(x_src).view(-1, H, C)
+                x_src = self.lin_src(x_src).reshape([-1, H, C])
                 if x_dst is not None:
-                    x_dst = self.lin_dst(x_dst).view(-1, H, C)
+                    x_dst = self.lin_dst(x_dst).reshape([-1, H, C])
 
         x = (x_src, x_dst)
 
         # Next, we compute node-level attention coefficients, both for source
         # and target nodes (if present):
-        alpha_src = (x_src * self.att_src).sum(dim=-1)
-        alpha_dst = None if x_dst is None else (x_dst * self.att_dst).sum(-1)
+        alpha_src = paddle.sum(x_src * self.att_src, axis=-1)
+        alpha_dst = None if x_dst is None else paddle.sum(
+            x_dst * self.att_dst, axis=-1)
         alpha = (alpha_src, alpha_dst)
 
         if self.add_self_loops:
             if isinstance(edge_index, Tensor):
                 # We only want to add self-loops for nodes that appear both as
                 # source and target nodes:
-                num_nodes = x_src.size(0)
+                num_nodes = x_src.shape[0]
                 if x_dst is not None:
-                    num_nodes = min(num_nodes, x_dst.size(0))
+                    num_nodes = min(num_nodes, x_dst.shape[0])
                 num_nodes = min(size) if size is not None else num_nodes
                 edge_index, edge_attr = remove_self_loops(
                     edge_index, edge_attr)
@@ -294,9 +362,9 @@ class GATConv(MessagePassing):
         out = self.propagate(edge_index, x=x, alpha=alpha, size=size)
 
         if self.concat:
-            out = out.view(-1, self.heads * self.out_channels)
+            out = out.reshape([-1, self.heads * self.out_channels])
         else:
-            out = out.mean(dim=1)
+            out = out.mean(axis=1)
 
         if res is not None:
             out = out + res
@@ -326,11 +394,11 @@ class GATConv(MessagePassing):
         if index.numel() == 0:
             return alpha
         if edge_attr is not None and self.lin_edge is not None:
-            if edge_attr.dim() == 1:
-                edge_attr = edge_attr.view(-1, 1)
+            if edge_attr.ndim == 1:
+                edge_attr = edge_attr.reshape([-1, 1])
             edge_attr = self.lin_edge(edge_attr)
-            edge_attr = edge_attr.view(-1, self.heads, self.out_channels)
-            alpha_edge = (edge_attr * self.att_edge).sum(dim=-1)
+            edge_attr = edge_attr.reshape([-1, self.heads, self.out_channels])
+            alpha_edge = paddle.sum(edge_attr * self.att_edge, axis=-1)
             alpha = alpha + alpha_edge
 
         alpha = F.leaky_relu(alpha, self.negative_slope)
@@ -339,7 +407,7 @@ class GATConv(MessagePassing):
         return alpha
 
     def message(self, x_j: Tensor, alpha: Tensor) -> Tensor:
-        return alpha.unsqueeze(-1) * x_j
+        return paddle.unsqueeze(alpha, axis=-1) * x_j
 
     def __repr__(self) -> str:
         return (f'{self.__class__.__name__}({self.in_channels}, '

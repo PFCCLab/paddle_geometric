@@ -25,7 +25,7 @@ def test_point_gnn_conv():
                          ')')
 
     out = conv(x, pos, edge_index)
-    assert out.shape== (6, 8)
+    assert tuple(out.shape)== (6, 8)
     assert paddle.allclose(conv(x, pos, adj1.t()), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

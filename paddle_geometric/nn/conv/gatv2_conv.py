@@ -4,7 +4,6 @@ from typing import Optional, Tuple, Union
 import paddle
 import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Layer
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.dense.linear import Linear
@@ -31,7 +30,7 @@ class GATv2Conv(MessagePassing):
     r"""The GATv2 operator from the `"How Attentive are Graph Attention
     Networks?" <https://arxiv.org/abs/2105.14491>`_ paper, which fixes the
     static attention problem of the standard
-    :class:`~torch_geometric.conv.GATConv` layer.
+    :class:`~paddle_geometric.conv.GATConv` layer.
     Since the linear layers in the standard GAT are applied right after each
     other, the ranking of attended nodes is unconditioned on the query node.
     In contrast, in :class:`GATv2`, every node can attend to any other node.
@@ -157,22 +156,27 @@ class GATv2Conv(MessagePassing):
         self.share_weights = share_weights
 
         if isinstance(in_channels, int):
-            self.lin_l = paddle.nn.Linear(in_channels, heads * out_channels, bias_attr=bias)
+            self.lin_l = Linear(in_channels, heads * out_channels, bias=bias,
+                                weight_initializer='glorot')
             if share_weights:
                 self.lin_r = self.lin_l
             else:
-                self.lin_r = paddle.nn.Linear(in_channels, heads * out_channels, bias_attr=bias)
+                self.lin_r = Linear(in_channels, heads * out_channels,
+                                    bias=bias, weight_initializer='glorot')
         else:
-            self.lin_l = paddle.nn.Linear(in_channels[0], heads * out_channels, bias_attr=bias)
+            self.lin_l = Linear(in_channels[0], heads * out_channels,
+                                bias=bias, weight_initializer='glorot')
             if share_weights:
                 self.lin_r = self.lin_l
             else:
-                self.lin_r = paddle.nn.Linear(in_channels[1], heads * out_channels, bias_attr=bias)
+                self.lin_r = Linear(in_channels[1], heads * out_channels,
+                                    bias=bias, weight_initializer='glorot')
 
         self.att = self.create_parameter([1, heads, out_channels])
 
         if edge_dim is not None:
-            self.lin_edge = paddle.nn.Linear(edge_dim, heads * out_channels, bias_attr=False)
+            self.lin_edge = Linear(edge_dim, heads * out_channels, bias=False,
+                                   weight_initializer='glorot')
         else:
             self.lin_edge = None
 
@@ -180,11 +184,12 @@ class GATv2Conv(MessagePassing):
         total_out_channels = out_channels * (heads if concat else 1)
 
         if residual:
-            self.res = paddle.nn.Linear(
+            self.res = Linear(
                 in_channels
                 if isinstance(in_channels, int) else in_channels[1],
                 total_out_channels,
-                bias_attr=False,
+                bias=False,
+                weight_initializer='glorot',
             )
         else:
             self.res = None
@@ -195,27 +200,58 @@ class GATv2Conv(MessagePassing):
             self.bias = None
 
         self.reset_parameters()
+
     def reset_parameters(self):
         super().reset_parameters()
-        self.lin_l.weight.set_value(paddle.nn.initializer.XavierUniform()(self.lin_l.weight.shape))
-        self.lin_r.weight.set_value(paddle.nn.initializer.XavierUniform()(self.lin_r.weight.shape))
+        self.lin_l.reset_parameters()
+        self.lin_r.reset_parameters()
         if self.lin_edge is not None:
-            self.lin_edge.weight.set_value(paddle.nn.initializer.XavierUniform()(self.lin_edge.weight.shape))
+            self.lin_edge.reset_parameters()
         if self.res is not None:
-            self.res.weight.set_value(paddle.nn.initializer.XavierUniform()(self.res.weight.shape))
+            self.res.reset_parameters()
         glorot(self.att)
         zeros(self.bias)
 
+    @overload
     def forward(
         self,
-        x: Union[Tensor, Tuple[Tensor, Tensor]],
-        edge_index: Union[Tensor, SparseTensor],
-        edge_attr: Optional[Tensor] = None,
+        x: Union[Tensor, PairTensor],
+        edge_index: Adj,
+        edge_attr: OptTensor = None,
+        return_attention_weights: NoneType = None,
+    ) -> Tensor:
+        pass
+
+    @overload
+    def forward(
+        self,
+        x: Union[Tensor, PairTensor],
+        edge_index: Tensor,
+        edge_attr: OptTensor = None,
+        return_attention_weights: bool = None,
+    ) -> Tuple[Tensor, Tuple[Tensor, Tensor]]:
+        pass
+
+    @overload
+    def forward(  # noqa: F811
+        self,
+        x: Union[Tensor, PairTensor],
+        edge_index: SparseTensor,
+        edge_attr: OptTensor = None,
+        return_attention_weights: bool = None,
+    ) -> Tuple[Tensor, SparseTensor]:
+        pass
+
+    def forward(  # noqa: F811
+        self,
+        x: Union[Tensor, PairTensor],
+        edge_index: Adj,
+        edge_attr: OptTensor = None,
         return_attention_weights: Optional[bool] = None,
     ) -> Union[
-        Tensor,
-        Tuple[Tensor, Tuple[Tensor, Tensor]],
-        Tuple[Tensor, SparseTensor],
+            Tensor,
+            Tuple[Tensor, Tuple[Tensor, Tensor]],
+            Tuple[Tensor, SparseTensor],
     ]:
         r"""Runs the forward pass of the module.
 
@@ -234,8 +270,8 @@ class GATv2Conv(MessagePassing):
 
         res: Optional[Tensor] = None
 
-        x_l: Optional[Tensor] = None
-        x_r: Optional[Tensor] = None
+        x_l: OptTensor = None
+        x_r: OptTensor = None
         if isinstance(x, Tensor):
             assert x.ndim == 2
 
@@ -248,8 +284,8 @@ class GATv2Conv(MessagePassing):
             else:
                 x_r = self.lin_r(x).reshape([-1, H, C])
         else:
-            x_l, x_r = x
-            assert x_l.ndim == 2
+            x_l, x_r = x[0], x[1]
+            assert x[0].ndim == 2
 
             if x_r is not None and self.res is not None:
                 res = self.res(x_r)
@@ -271,15 +307,17 @@ class GATv2Conv(MessagePassing):
                     edge_index, edge_attr, fill_value=self.fill_value, num_nodes=num_nodes)
             elif isinstance(edge_index, SparseTensor):
                 if self.edge_dim is None:
-                    edge_index = edge_index.set_diag()
+                    edge_index = paddle_sparse.set_diag(edge_index)
                 else:
                     raise NotImplementedError(
                         "The usage of 'edge_attr' and 'add_self_loops' "
                         "simultaneously is currently not yet supported for "
                         "'edge_index' in a 'SparseTensor' form")
 
+        # edge_updater_type: (x: PairTensor, edge_attr: OptTensor)
         alpha = self.edge_updater(edge_index, x=(x_l, x_r), edge_attr=edge_attr)
 
+        # propagate_type: (x: PairTensor, alpha: Tensor)
         out = self.propagate(edge_index, x=(x_l, x_r), alpha=alpha)
 
         if self.concat:
@@ -295,34 +333,25 @@ class GATv2Conv(MessagePassing):
 
         if isinstance(return_attention_weights, bool):
             if isinstance(edge_index, Tensor):
-                return out, (edge_index, alpha)
+                if is_paddle_sparse_tensor(edge_index):
+                    # TODO TorchScript requires to return a tuple
+                    adj = set_sparse_value(edge_index, alpha)
+                    return out, (adj, alpha)
+                else:
+                    return out, (edge_index, alpha)
             elif isinstance(edge_index, SparseTensor):
-                return out, edge_index.set_value(alpha)
+                return out, edge_index.set_value(alpha, layout='coo')
         else:
             return out
 
-    def edge_update(self, x_j: Tensor, x_i: Tensor, edge_attr: Optional[Tensor],
-                    index: Tensor, ptr: Optional[Tensor],
+    def edge_update(self, x_j: Tensor, x_i: Tensor, edge_attr: OptTensor,
+                    index: Tensor, ptr: OptTensor,
                     dim_size: Optional[int]) -> Tensor:
-        """
-        Update edge features.
-
-        Args:
-            x_j (Tensor): Source node features.
-            x_i (Tensor): Target node features.
-            edge_attr (Optional[Tensor]): Edge features.
-            index (Tensor): Edge indices.
-            ptr (Optional[Tensor]): Pointer tensor for segment operation.
-            dim_size (Optional[int]): Dimension size for segment operation.
-
-        Returns:
-            Tensor: Updated edge attention scores.
-        """
         x = x_i + x_j
 
         if edge_attr is not None:
             if edge_attr.ndim == 1:
-                edge_attr = edge_attr.unsqueeze(-1)
+                edge_attr = edge_attr.reshape([-1, 1])
             assert self.lin_edge is not None
             edge_attr = self.lin_edge(edge_attr)
             edge_attr = edge_attr.reshape([-1, self.heads, self.out_channels])
@@ -335,24 +364,8 @@ class GATv2Conv(MessagePassing):
         return alpha
 
     def message(self, x_j: Tensor, alpha: Tensor) -> Tensor:
-        """
-        Compute the message for aggregation.
-
-        Args:
-            x_j (Tensor): Source node features.
-            alpha (Tensor): Attention scores.
-
-        Returns:
-            Tensor: Weighted message for aggregation.
-        """
         return x_j * alpha.unsqueeze(-1)
 
     def __repr__(self) -> str:
-        """
-        String representation of the class.
-
-        Returns:
-            str: Class representation.
-        """
         return (f'{self.__class__.__name__}({self.in_channels}, '
                 f'{self.out_channels}, heads={self.heads})')

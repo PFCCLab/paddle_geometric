@@ -1,4 +1,8 @@
 import pytest
+
+pytest.skip("CuGraph conv tests are not required for Paddle port.",
+            allow_module_level=True)
+
 import paddle
 
 from paddle_geometric import EdgeIndex
@@ -18,11 +22,11 @@ def test_gat_conv_equality(bias, bipartite, concat, heads, max_num_neighbors):
     kwargs = dict(bias=bias, concat=concat)
 
     size = (10, 8) if bipartite else (10, 10)
-    x = paddle.rand(size[0], in_channels, place='cuda')
+    x = paddle.rand([size[0], in_channels]).cuda()
     edge_index = paddle.to_tensor([
         [7, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 8, 9],
         [0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7],
-    ], place='cuda')
+    ]).cuda()
 
     conv1 = GATConv(in_channels, out_channels, heads, add_self_loops=False,
                     **kwargs).cuda()

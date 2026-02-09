@@ -1,40 +1,86 @@
-from typing import Callable, Optional, Union, Tuple
+from typing import Callable, Optional, Tuple, Union
 
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.dense.linear import Linear
+from paddle_geometric.nn.inits import reset
+from paddle_geometric.typing import (
+    Adj,
+    OptPairTensor,
+    OptTensor,
+    Size,
+    SparseTensor,
+)
 from paddle_geometric.utils import spmm
 
 
 class GINConv(MessagePassing):
-    def __init__(self, nn: Callable, eps: float = 0.0, train_eps: bool = False, **kwargs):
+    r"""The graph isomorphism operator from the `"How Powerful are
+    Graph Neural Networks?" <https://arxiv.org/abs/1810.00826>`_ paper.
+
+    .. math::
+        \mathbf{x}^{\prime}_i = h_{\mathbf{\Theta}} \left( (1 + \epsilon) \cdot
+        \mathbf{x}_i + \sum_{j \in \mathcal{N}(i)} \mathbf{x}_j \right)
+
+    or
+
+    .. math::
+        \mathbf{X}^{\prime} = h_{\mathbf{\Theta}} \left( \left( \mathbf{A} +
+        (1 + \epsilon) \cdot \mathbf{I} \right) \cdot \mathbf{X} \right),
+
+    here :math:`h_{\mathbf{\Theta}}` denotes a neural network, *.i.e.* an MLP.
+
+    Args:
+        nn (torch.nn.Module): A neural network :math:`h_{\mathbf{\Theta}}` that
+            maps node features :obj:`x` of shape :obj:`[-1, in_channels]` to
+            shape :obj:`[-1, out_channels]`, *e.g.*, defined by
+            :class:`torch.nn.Sequential`.
+        eps (float, optional): (Initial) :math:`\epsilon`-value.
+            (default: :obj:`0.`)
+        train_eps (bool, optional): If set to :obj:`True`, :math:`\epsilon`
+            will be a trainable parameter. (default: :obj:`False`)
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
+          if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V}_t|, F_{out})` if bipartite
+    """
+
+    def __init__(self, nn: Callable, eps: float = 0., train_eps: bool = False,
+                 **kwargs):
         kwargs.setdefault('aggr', 'add')
         super().__init__(**kwargs)
         self.nn = nn
         self.initial_eps = eps
         if train_eps:
-            self.eps = self.create_parameter([1], default_initializer=paddle.nn.initializer.Constant(eps))
+            self.eps = self.create_parameter(shape=[1])
         else:
-            self.eps = paddle.to_tensor(eps)
+            self.register_buffer('eps', paddle.empty([1]))
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.nn.apply(lambda layer: layer.reset_parameters() if hasattr(layer, 'reset_parameters') else None)
-        if isinstance(self.eps, Tensor):
-            self.eps.fill_(self.initial_eps)
+        super().reset_parameters()
+        reset(self.nn)
+        with paddle.no_grad():
+            self.eps.set_value(paddle.full_like(self.eps, self.initial_eps))
 
     def forward(
-            self,
-            x: Union[Tensor, Tuple[Tensor, Tensor]],
-            edge_index: Tensor,
-            size: Optional[Tuple[int, int]] = None,
+        self,
+        x: Union[Tensor, OptPairTensor],
+        edge_index: Adj,
+        size: Size = None,
     ) -> Tensor:
         if isinstance(x, Tensor):
-            x = (x, x)
-
+            x: OptPairTensor = (x, x)
+        # propagate_type: (x: OptPairTensor)
         out = self.propagate(edge_index, x=x, size=size)
 
         x_r = x[1]
@@ -46,7 +92,9 @@ class GINConv(MessagePassing):
     def message(self, x_j: Tensor) -> Tensor:
         return x_j
 
-    def message_and_aggregate(self, adj_t: Tensor, x: Tuple[Tensor, Tensor]) -> Tensor:
+    def message_and_aggregate(self, adj_t: Adj, x: OptPairTensor) -> Tensor:
+        if isinstance(adj_t, SparseTensor):
+            adj_t = adj_t.set_value(None, layout=None)
         return spmm(adj_t, x[0], reduce=self.aggr)
 
     def __repr__(self) -> str:
@@ -54,18 +102,67 @@ class GINConv(MessagePassing):
 
 
 class GINEConv(MessagePassing):
-    def __init__(self, nn: Layer, eps: float = 0.0, train_eps: bool = False, edge_dim: Optional[int] = None, **kwargs):
+    r"""The modified :class:`GINConv` operator from the `"Strategies for
+    Pre-training Graph Neural Networks" <https://arxiv.org/abs/1905.12265>`_
+    paper.
+
+    .. math::
+        \mathbf{x}^{\prime}_i = h_{\mathbf{\Theta}} \left( (1 + \epsilon) \cdot
+        \mathbf{x}_i + \sum_{j \in \mathcal{N}(i)} \mathrm{ReLU}
+        ( \mathbf{x}_j + \mathbf{e}_{j,i} ) \right)
+
+    that is able to incorporate edge features :math:`\mathbf{e}_{j,i}` into
+    the aggregation procedure.
+
+    Args:
+        nn (torch.nn.Module): A neural network :math:`h_{\mathbf{\Theta}}` that
+            maps node features :obj:`x` of shape :obj:`[-1, in_channels]` to
+            shape :obj:`[-1, out_channels]`, *e.g.*, defined by
+            :class:`torch.nn.Sequential`.
+        eps (float, optional): (Initial) :math:`\epsilon`-value.
+            (default: :obj:`0.`)
+        train_eps (bool, optional): If set to :obj:`True`, :math:`\epsilon`
+            will be a trainable parameter. (default: :obj:`False`)
+        edge_dim (int, optional): Edge feature dimensionality. If set to
+            :obj:`None`, node and edge feature dimensionality is expected to
+            match. Other-wise, edge features are linearly transformed to match
+            node feature dimensionality. (default: :obj:`None`)
+        **kwargs (optional): Additional arguments of
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{s}), (|\mathcal{V_t}|, F_{t}))`
+          if bipartite,
+          edge indices :math:`(2, |\mathcal{E}|)`,
+          edge features :math:`(|\mathcal{E}|, D)` *(optional)*
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V}_t|, F_{out})` if bipartite
+    """
+
+    def __init__(self, nn: paddle.nn.Layer, eps: float = 0.,
+                 train_eps: bool = False, edge_dim: Optional[int] = None,
+                 **kwargs):
         kwargs.setdefault('aggr', 'add')
         super().__init__(**kwargs)
         self.nn = nn
         self.initial_eps = eps
         if train_eps:
-            self.eps = self.create_parameter([1], default_initializer=paddle.nn.initializer.Constant(eps))
+            self.eps = self.create_parameter(shape=[1])
         else:
-            self.eps = paddle.to_tensor(eps)
+            self.register_buffer('eps', paddle.empty([1]))
         if edge_dim is not None:
-            if hasattr(self.nn[0], 'weight'):
-                in_channels = self.nn[0].weight.shape[0]
+            if isinstance(self.nn, paddle.nn.Sequential):
+                nn = self.nn[0]
+            else:
+                nn = self.nn
+            if hasattr(nn, 'in_features'):
+                in_channels = nn.in_features
+            elif hasattr(nn, 'in_channels'):
+                in_channels = nn.in_channels
+            elif hasattr(nn, 'weight'):
+                in_channels = int(nn.weight.shape[0])
             else:
                 raise ValueError("Could not infer input channels from `nn`.")
             self.lin = Linear(edge_dim, in_channels)
@@ -74,22 +171,22 @@ class GINEConv(MessagePassing):
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.nn.apply(lambda layer: layer.reset_parameters() if hasattr(layer, 'reset_parameters') else None)
-        if isinstance(self.eps, Tensor):
-            self.eps.fill_(self.initial_eps)
+        reset(self.nn)
+        with paddle.no_grad():
+            self.eps.set_value(paddle.full_like(self.eps, self.initial_eps))
         if self.lin is not None:
             self.lin.reset_parameters()
 
     def forward(
-            self,
-            x: Union[Tensor, Tuple[Tensor, Tensor]],
-            edge_index: Tensor,
-            edge_attr: Optional[Tensor] = None,
-            size: Optional[Tuple[int, int]] = None,
+        self,
+        x: Union[Tensor, OptPairTensor],
+        edge_index: Adj,
+        edge_attr: OptTensor = None,
+        size: Size = None,
     ) -> Tensor:
         if isinstance(x, Tensor):
-            x = (x, x)
-
+            x: OptPairTensor = (x, x)
+        # propagate_type: (x: OptPairTensor, edge_attr: OptTensor)
         out = self.propagate(edge_index, x=x, edge_attr=edge_attr, size=size)
 
         x_r = x[1]
@@ -100,7 +197,9 @@ class GINEConv(MessagePassing):
 
     def message(self, x_j: Tensor, edge_attr: Tensor) -> Tensor:
         if self.lin is None and x_j.shape[-1] != edge_attr.shape[-1]:
-            raise ValueError("Node and edge feature dimensionalities do not match. Set 'edge_dim' for 'GINEConv'.")
+            raise ValueError("Node and edge feature dimensionalities do not "
+                             "match. Consider setting the 'edge_dim' "
+                             "attribute of 'GINEConv'")
 
         if self.lin is not None:
             edge_attr = self.lin(edge_attr)

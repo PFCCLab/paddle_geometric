@@ -1,12 +1,11 @@
 import warnings
 from typing import Optional
 
-import paddle
 from paddle import Tensor
 
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.conv.gcn_conv import gcn_norm
 from paddle_geometric.nn.dense.linear import Linear
-from paddle_geometric.nn.inits import zeros
 from paddle_geometric.typing import Adj, OptTensor, SparseTensor
 from paddle_geometric.utils import spmm
 
@@ -94,11 +93,11 @@ class SSGConv(MessagePassing):
         if cache is None:
             if isinstance(edge_index, Tensor):
                 edge_index, edge_weight = gcn_norm(  # yapf: disable
-                    edge_index, edge_weight, x.shape[0], False,
+                    edge_index, edge_weight, x.shape[self.node_dim], False,
                     self.add_self_loops, self.flow, dtype=x.dtype)
             elif isinstance(edge_index, SparseTensor):
                 edge_index = gcn_norm(  # yapf: disable
-                    edge_index, edge_weight, x.shape[0], False,
+                    edge_index, edge_weight, x.shape[self.node_dim], False,
                     self.add_self_loops, self.flow, dtype=x.dtype)
 
             h = x * self.alpha

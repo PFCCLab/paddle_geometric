@@ -24,12 +24,12 @@ def test_gen_conv(aggr):
     conv = GENConv(16, 32, aggr, edge_dim=16, msg_norm=True)
     assert str(conv) == f'GENConv(16, 32, aggr={aggr})'
     out1 = conv(x1, edge_index)
-    assert out1.shape== (4, 32)
+    assert tuple(out1.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, size=(4, 4)), out1)
     assert paddle.allclose(conv(x1, adj1.t().coalesce()), out1)
 
     out2 = conv(x1, edge_index, value)
-    assert out2.shape== (4, 32)
+    assert tuple(out2.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, value, (4, 4)), out2)
     # t() expects a tensor with <= 2 sparse and 0 dense dimensions
     assert paddle.allclose(conv(x1, adj2.transpose(1, 0).coalesce()), out2)
@@ -58,12 +58,12 @@ def test_gen_conv(aggr):
     adj2 = to_paddle_coo_tensor(edge_index, value, size=(4, 2))
 
     out1 = conv((x1, x2), edge_index)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, size=(4, 2)), out1)
     assert paddle.allclose(conv((x1, x2), adj1.t().coalesce()), out1)
 
     out2 = conv((x1, x2), edge_index, value)
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, value, (4, 2)), out2)
     assert paddle.allclose(conv((x1, x2),
                                adj2.transpose(1, 0).coalesce()), out2)
@@ -98,12 +98,12 @@ def test_gen_conv(aggr):
     assert str(conv) == f'GENConv((8, 16), 32, aggr={aggr})'
 
     out1 = conv((x1, x2), edge_index)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, size=(4, 2)), out1)
     assert paddle.allclose(conv((x1, x2), adj1.t().coalesce()), out1)
 
     out2 = conv((x1, None), edge_index, size=(4, 2))
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
     assert paddle.allclose(conv((x1, None), adj1.t().coalesce()), out2)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -114,13 +114,13 @@ def test_gen_conv(aggr):
     conv = GENConv((-1, -1), 32, aggr, edge_dim=-1)
     assert str(conv) == f'GENConv((-1, -1), 32, aggr={aggr})'
     out1 = conv((x1, x2), edge_index, value)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, value, size=(4, 2)), out1)
     assert paddle.allclose(conv((x1, x2),
                                adj2.transpose(1, 0).coalesce()), out1)
 
     out2 = conv((x1, None), edge_index, value, size=(4, 2))
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
     assert paddle.allclose(conv((x1, None),
                                adj2.transpose(1, 0).coalesce()), out2)
 

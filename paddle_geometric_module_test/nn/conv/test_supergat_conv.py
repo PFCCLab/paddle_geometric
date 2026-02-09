@@ -16,7 +16,7 @@ def test_supergat_conv(att_type):
     assert str(conv) == f'SuperGATConv(8, 32, heads=2, type={att_type})'
 
     out = conv(x, edge_index)
-    assert out.shape== (4, 64)
+    assert tuple(out.shape) == (4, 64)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, sparse_sizes=(4, 4))
@@ -26,7 +26,8 @@ def test_supergat_conv(att_type):
     neg_edge_index = conv.negative_sampling(edge_index, x.shape[0])
     assert paddle.allclose(conv(x, edge_index, neg_edge_index), out)
     att_loss = conv.get_attention_loss()
-    assert isinstance(att_loss, paddle.to_tensor) and att_loss > 0
+    assert isinstance(att_loss, paddle.Tensor)
+    assert float(att_loss) > 0
 
     # Batch of graphs:
     x = paddle.randn(shape=[8, 8])
@@ -34,10 +35,11 @@ def test_supergat_conv(att_type):
                                [0, 0, 1, 1, 4, 4, 5, 5]])
     batch = paddle.to_tensor([0, 0, 0, 0, 1, 1, 1, 1])
     out = conv(x, edge_index, batch=batch)
-    assert out.shape== (8, 64)
+    assert tuple(out.shape) == (8, 64)
 
     # Batch of graphs and negative samples are given:
     neg_edge_index = conv.negative_sampling(edge_index, x.shape[0], batch)
     assert paddle.allclose(conv(x, edge_index, neg_edge_index), out)
     att_loss = conv.get_attention_loss()
-    assert isinstance(att_loss, paddle.to_tensor) and att_loss > 0
+    assert isinstance(att_loss, paddle.Tensor)
+    assert float(att_loss) > 0

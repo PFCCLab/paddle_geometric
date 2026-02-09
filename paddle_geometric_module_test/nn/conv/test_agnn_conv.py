@@ -17,7 +17,7 @@ def test_agnn_conv(requires_grad):
     conv = AGNNConv(requires_grad=requires_grad)
     assert str(conv) == 'AGNNConv()'
     out = conv(x, edge_index)
-    assert out.shape== (4, 16)
+    assert tuple(out.shape) == (4, 16)
     assert paddle.allclose(conv(x, adj1.t()), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

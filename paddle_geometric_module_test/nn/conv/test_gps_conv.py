@@ -22,7 +22,7 @@ def test_gps_conv(norm, attn_type):
                          f'heads=4, attn_type={attn_type})')
 
     out = conv(x, edge_index)
-    assert out.shape== (4, 16)
+    assert tuple(out.shape)== (4, 16)
     assert paddle.allclose(conv(x, adj1.t()), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -30,7 +30,7 @@ def test_gps_conv(norm, attn_type):
         assert paddle.allclose(conv(x, adj2.t()), out, atol=1e-6)
 
     out = conv(x, edge_index, batch)
-    assert out.shape== (4, 16)
+    assert tuple(out.shape)== (4, 16)
     assert paddle.allclose(conv(x, adj1.t(), batch), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:

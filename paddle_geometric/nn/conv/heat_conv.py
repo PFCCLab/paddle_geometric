@@ -15,6 +15,12 @@ class HEATConv(MessagePassing):
     `"Heterogeneous Edge-Enhanced Graph Attention Network For Multi-Agent
     Trajectory Prediction" <https://arxiv.org/abs/2106.07161>`_ paper.
 
+    :class:`HEATConv` enhances :class:`~paddle_geometric.nn.conv.GATConv` by:
+
+    1. type-specific transformations of nodes of different types
+    2. edge type and edge feature incorporation, in which edges are assumed to
+       have different types but contain the same kind of attributes
+
     Args:
         in_channels (int): Size of each input sample, or :obj:`-1` to derive
             the size from the first input(s) to the forward method.
@@ -32,7 +38,8 @@ class HEATConv(MessagePassing):
         negative_slope (float, optional): LeakyReLU angle of the negative
             slope. (default: :obj:`0.2`)
         dropout (float, optional): Dropout probability of the normalized
-            attention coefficients. (default: :obj:`0`)
+            attention coefficients which exposes each node to a stochastically
+            sampled neighborhood during training. (default: :obj:`0`)
         root_weight (bool, optional): If set to :obj:`False`, the layer will
             not add transformed root node features to the output.
             (default: :obj:`True`)
@@ -40,6 +47,15 @@ class HEATConv(MessagePassing):
             an additive bias. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
             :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})`,
+          edge indices :math:`(2, |\mathcal{E}|)`,
+          node types :math:`(|\mathcal{V}|)`,
+          edge types :math:`(|\mathcal{E}|)`,
+          edge features :math:`(|\mathcal{E}|, D)` *(optional)*
+        - **output:** node features :math:`(|\mathcal{V}|, F_{out})`
     """
     def __init__(self, in_channels: int, out_channels: int,
                  num_node_types: int, num_edge_types: int,
@@ -63,21 +79,22 @@ class HEATConv(MessagePassing):
                                        num_node_types, bias=bias)
 
         self.edge_type_emb = nn.Embedding(num_edge_types, edge_type_emb_dim)
-        self.edge_attr_emb = Linear(edge_dim, edge_attr_emb_dim, bias_attr=False)
+        self.edge_attr_emb = Linear(edge_dim, edge_attr_emb_dim, bias=False)
 
         self.att = Linear(
             2 * out_channels + edge_type_emb_dim + edge_attr_emb_dim,
-            self.heads, bias_attr=False)
+            self.heads, bias=False)
 
         self.lin = Linear(out_channels + edge_attr_emb_dim, out_channels,
-                          bias_attr=bias)
+                          bias=bias)
 
         self.reset_parameters()
 
     def reset_parameters(self):
         super().reset_parameters()
         self.hetero_lin.reset_parameters()
-        self.edge_type_emb.weight.set_value(paddle.nn.initializer.XavierUniform()(self.edge_type_emb.weight.shape))
+        if hasattr(self.edge_type_emb, "reset_parameters"):
+            self.edge_type_emb.reset_parameters()
         self.edge_attr_emb.reset_parameters()
         self.att.reset_parameters()
         self.lin.reset_parameters()

@@ -20,12 +20,12 @@ def test_gin_conv():
     conv = GINConv(nn, train_eps=True)
     assert str(conv) == (
         'GINConv(nn=Sequential(\n'
-        '  (0): Linear(in_features=16, out_features=32, bias=True)\n'
+        '  (0): Linear(in_features=16, out_features=32, dtype=float32)\n'
         '  (1): ReLU()\n'
-        '  (2): Linear(in_features=32, out_features=32, bias=True)\n'
+        '  (2): Linear(in_features=32, out_features=32, dtype=float32)\n'
         '))')
     out = conv(x1, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, size=(4, 4)), out, atol=1e-6)
     assert paddle.allclose(conv(x1, adj1.t()), out, atol=1e-6)
 
@@ -45,12 +45,12 @@ def test_gin_conv():
     adj1 = to_paddle_csc_tensor(edge_index, size=(4, 2))
 
     out1 = conv((x1, x2), edge_index)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, (4, 2)), out1, atol=1e-6)
     assert paddle.allclose(conv((x1, x2), adj1.t()), out1, atol=1e-6)
 
     out2 = conv((x1, None), edge_index, (4, 2))
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
     assert paddle.allclose(conv((x1, None), adj1.t()), out2, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -78,12 +78,12 @@ def test_gine_conv():
     conv = GINEConv(nn, train_eps=True)
     assert str(conv) == (
         'GINEConv(nn=Sequential(\n'
-        '  (0): Linear(in_features=16, out_features=32, bias=True)\n'
+        '  (0): Linear(in_features=16, out_features=32, dtype=float32)\n'
         '  (1): ReLU()\n'
-        '  (2): Linear(in_features=32, out_features=32, bias=True)\n'
+        '  (2): Linear(in_features=32, out_features=32, dtype=float32)\n'
         '))')
     out = conv(x1, edge_index, value)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, edge_index, value, size=(4, 4)), out)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -100,11 +100,11 @@ def test_gine_conv():
 
     # Test bipartite message passing:
     out1 = conv((x1, x2), edge_index, value)
-    assert out1.shape== (2, 32)
+    assert tuple(out1.shape)== (2, 32)
     assert paddle.allclose(conv((x1, x2), edge_index, value, (4, 2)), out1)
 
     out2 = conv((x1, None), edge_index, value, (4, 2))
-    assert out2.shape== (2, 32)
+    assert tuple(out2.shape)== (2, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, value, (4, 2))
@@ -131,12 +131,12 @@ def test_gine_conv_edge_dim():
     nn = Seq(Lin(16, 32), ReLU(), Lin(32, 32))
     conv = GINEConv(nn, train_eps=True, edge_dim=8)
     out = conv(x, edge_index, edge_attr)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     nn = Lin(16, 32)
     conv = GINEConv(nn, train_eps=True, edge_dim=8)
     out = conv(x, edge_index, edge_attr)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
 
 def test_static_gin_conv():
@@ -146,7 +146,7 @@ def test_static_gin_conv():
     nn = Seq(Lin(16, 32), ReLU(), Lin(32, 32))
     conv = GINConv(nn, train_eps=True)
     out = conv(x, edge_index)
-    assert out.shape== (3, 4, 32)
+    assert tuple(out.shape)== (3, 4, 32)
 
 
 def test_static_gine_conv():
@@ -157,4 +157,4 @@ def test_static_gine_conv():
     nn = Seq(Lin(16, 32), ReLU(), Lin(32, 32))
     conv = GINEConv(nn, train_eps=True)
     out = conv(x, edge_index, edge_attr)
-    assert out.shape== (3, 4, 32)
+    assert tuple(out.shape)== (3, 4, 32)

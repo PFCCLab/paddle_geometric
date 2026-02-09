@@ -20,7 +20,7 @@ def test_fa_conv():
     assert str(conv) == 'FAConv(16, eps=1.0)'
     out = conv(x, x_0, edge_index)
     assert conv._cached_edge_index is not None
-    assert out.shape== (4, 16)
+    assert tuple(out.shape)== (4, 16)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj2 = SparseTensor.from_edge_index(edge_index, sparse_sizes=(4, 4))
@@ -63,14 +63,14 @@ def test_fa_conv():
     # Test `return_attention_weights`:
     result = conv(x, x_0, edge_index, return_attention_weights=True)
     assert paddle.allclose(result[0], out, atol=1e-6)
-    assert result[1][0].shape== (2, 10)
-    assert result[1][1].shape== (10, )
+    assert tuple(result[1][0].shape)== (2, 10)
+    assert tuple(result[1][1].shape)== (10, )
     assert conv._alpha is None
 
     result = conv(x, x_0, adj1.t(), return_attention_weights=True)
     assert paddle.allclose(result[0], out, atol=1e-6)
-    assert result[1][0].shape== paddle.shape[[4, 4]]
-    assert result[1][0]._nnz() == 10
+    assert tuple(result[1][0].shape)== (4, 4)
+    assert result[1][0].nnz() == 10
     assert conv._alpha is None
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -98,8 +98,8 @@ def test_fa_conv():
         jit = paddle.jit.to_static(MyModule())
         result = jit(x, x_0, edge_index)
         assert paddle.allclose(result[0], out, atol=1e-6)
-        assert result[1][0].shape== (2, 10)
-        assert result[1][1].shape== (10, )
+        assert tuple(result[1][0].shape)== (2, 10)
+        assert tuple(result[1][1].shape)== (10, )
         assert conv._alpha is None
 
         if paddle_geometric.typing.WITH_PADDLE_SPARSE:

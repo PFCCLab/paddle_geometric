@@ -19,14 +19,14 @@ def test_pna_conv(divide_input):
     x = paddle.randn(shape=[4, 16])
     edge_index = paddle.to_tensor([[0, 0, 0, 1, 2, 3], [1, 2, 3, 0, 0, 0]])
     deg = paddle.to_tensor([0, 3, 0, 1])
-    value = paddle.rand(edge_index.shape[1], 3)
+    value = paddle.rand([edge_index.shape[1], 3])
 
     conv = PNAConv(16, 32, aggregators, scalers, deg=deg, edge_dim=3, towers=4,
                    pre_layers=2, post_layers=2, divide_input=divide_input)
     assert str(conv) == 'PNAConv(16, 32, towers=4, edge_dim=3)'
 
     out = conv(x, edge_index, value)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
         adj = SparseTensor.from_edge_index(edge_index, value, (4, 4))

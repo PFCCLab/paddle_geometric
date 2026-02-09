@@ -1,8 +1,8 @@
 import copy
 import paddle
 from paddle import Tensor
-from paddle.nn import Linear
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.dense.linear import Linear
 
 
 class DirGNNConv(paddle.nn.Layer):

@@ -2,12 +2,12 @@ from typing import Callable, Optional, Tuple, Union
 
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer, Sigmoid
+from paddle.nn import Sigmoid
+
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.dense.linear import Linear
 from paddle_geometric.nn.inits import zeros
 from paddle_geometric.typing import Adj, OptTensor, PairTensor
-from typing import Callable, Optional, Tuple, Union
 
 
 class ResGatedGraphConv(MessagePassing):
@@ -34,7 +34,7 @@ class ResGatedGraphConv(MessagePassing):
             dimensionalities.
         out_channels (int): Size of each output sample.
         act (callable, optional): Gating function :math:`\sigma`.
-            (default: :meth:`paddle.nn.Sigmoid()`)
+            (default: :meth:`torch.nn.Sigmoid()`)
         edge_dim (int, optional): Edge feature dimensionality (in case
             there are any). (default: :obj:`None`)
         bias (bool, optional): If set to :obj:`False`, the layer will not learn
@@ -83,12 +83,12 @@ class ResGatedGraphConv(MessagePassing):
         self.lin_value = Linear(in_channels[0] + edge_dim, out_channels)
 
         if root_weight:
-            self.lin_skip = Linear(in_channels[1], out_channels, bias_attr=False)
+            self.lin_skip = Linear(in_channels[1], out_channels, bias=False)
         else:
             self.lin_skip = None
 
         if bias:
-            self.bias = self.create_parameter(shape=[out_channels], default_initializer=zeros)
+            self.bias = self.create_parameter(shape=[out_channels])
         else:
             self.bias = None
 

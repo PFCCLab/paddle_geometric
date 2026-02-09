@@ -3,12 +3,18 @@ from typing import Union
 import paddle
 import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Layer, Linear
 
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.dense.linear import Linear
 from paddle_geometric.nn.inits import normal
-from paddle_geometric.typing import Adj, PairTensor, SparseTensor
-from paddle_geometric.utils import add_self_loops, remove_self_loops
+from paddle_geometric.typing import Adj, PairTensor, SparseTensor, paddle_sparse
+from paddle_geometric.utils import (
+    add_self_loops,
+    is_paddle_sparse_tensor,
+    remove_self_loops,
+    to_edge_index,
+)
+from paddle_geometric.utils.sparse import to_paddle_csr_tensor
 
 
 class FeaStConv(MessagePassing):
@@ -58,23 +64,26 @@ class FeaStConv(MessagePassing):
         self.heads = heads
         self.add_self_loops = add_self_loops
 
-        self.lin = Linear(in_channels, heads * out_channels, bias_attr=False)
-        self.u = Linear(in_channels, heads, bias_attr=False)
-        self.c = self.create_parameter(shape=[heads], default_initializer=normal(0, 0.1))
+        self.lin = Linear(in_channels, heads * out_channels, bias=False,
+                          weight_initializer='uniform')
+        self.u = Linear(in_channels, heads, bias=False,
+                        weight_initializer='uniform')
+        self.c = self.create_parameter(shape=[heads])
 
         if bias:
-            self.bias = self.create_parameter(shape=[out_channels], default_initializer=normal(0, 0.1))
+            self.bias = self.create_parameter(shape=[out_channels])
         else:
             self.bias = None
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.lin.weight.set_value(normal(0, 0.1)(self.lin.weight.shape))
-        self.u.weight.set_value(normal(0, 0.1)(self.u.weight.shape))
-        self.c.set_value(normal(0, 0.1)(self.c.shape))
+        super().reset_parameters()
+        self.lin.reset_parameters()
+        self.u.reset_parameters()
+        normal(self.c, mean=0, std=0.1)
         if self.bias is not None:
-            self.bias.set_value(normal(0, 0.1)(self.bias.shape))
+            normal(self.bias, mean=0, std=0.1)
 
     def forward(self, x: Union[Tensor, PairTensor], edge_index: Adj) -> Tensor:
 
@@ -82,11 +91,20 @@ class FeaStConv(MessagePassing):
             x = (x, x)
 
         if self.add_self_loops:
-            if isinstance(edge_index, Tensor):
+            if is_paddle_sparse_tensor(edge_index):
+                # `edge_index` is already transposed for sparse inputs.
+                ei, ea = to_edge_index(edge_index)
+                ei, _ = remove_self_loops(ei)
+                ei, _ = add_self_loops(ei, num_nodes=x[1].shape[0])
+                edge_index = to_paddle_csr_tensor(
+                    ei, size=(x[0].shape[0], x[1].shape[0]),
+                    is_coalesced=True)
+            elif isinstance(edge_index, Tensor):
                 edge_index, _ = remove_self_loops(edge_index)
-                edge_index, _ = add_self_loops(edge_index, num_nodes=x[1].shape[0])
+                edge_index, _ = add_self_loops(edge_index,
+                                              num_nodes=x[1].shape[0])
             elif isinstance(edge_index, SparseTensor):
-                edge_index = edge_index + paddle.sparse.eye(edge_index.shape[0], edge_index.shape[1])
+                edge_index = paddle_sparse.set_diag(edge_index)
 
         # propagate_type: (x: PairTensor)
         out = self.propagate(edge_index, x=x)

@@ -1,9 +1,8 @@
-from typing import Union, Optional
+from typing import Optional, Union
 
 import paddle
 import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Linear
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.dense.linear import Linear
@@ -12,43 +11,64 @@ from paddle_geometric.utils import spmm
 
 
 class SignedConv(MessagePassing):
-    r"""
-    The signed graph convolutional operator from the `"Signed Graph
+    r"""The signed graph convolutional operator from the `"Signed Graph
     Convolutional Network" <https://arxiv.org/abs/1808.06354>`_ paper.
 
-    This operator computes node embeddings using positive and negative edges
-    as described in the paper. It has two different aggregation modes:
+    .. math::
+        \mathbf{x}_v^{(\textrm{pos})} &= \mathbf{\Theta}^{(\textrm{pos})}
+        \left[ \frac{1}{|\mathcal{N}^{+}(v)|} \sum_{w \in \mathcal{N}^{+}(v)}
+        \mathbf{x}_w , \mathbf{x}_v \right]
 
-    1. If `first_aggr` is set to `True`, positive and negative embeddings are
-       computed using separate transformations for each, and then combined.
-    2. If `first_aggr` is set to `False`, the input features are expected to
-       be concatenated for positive and negative node features.
+        \mathbf{x}_v^{(\textrm{neg})} &= \mathbf{\Theta}^{(\textrm{neg})}
+        \left[ \frac{1}{|\mathcal{N}^{-}(v)|} \sum_{w \in \mathcal{N}^{-}(v)}
+        \mathbf{x}_w , \mathbf{x}_v \right]
+
+    if :obj:`first_aggr` is set to :obj:`True`, and
+
+    .. math::
+        \mathbf{x}_v^{(\textrm{pos})} &= \mathbf{\Theta}^{(\textrm{pos})}
+        \left[ \frac{1}{|\mathcal{N}^{+}(v)|} \sum_{w \in \mathcal{N}^{+}(v)}
+        \mathbf{x}_w^{(\textrm{pos})}, \frac{1}{|\mathcal{N}^{-}(v)|}
+        \sum_{w \in \mathcal{N}^{-}(v)} \mathbf{x}_w^{(\textrm{neg})},
+        \mathbf{x}_v^{(\textrm{pos})} \right]
+
+        \mathbf{x}_v^{(\textrm{neg})} &= \mathbf{\Theta}^{(\textrm{pos})}
+        \left[ \frac{1}{|\mathcal{N}^{+}(v)|} \sum_{w \in \mathcal{N}^{+}(v)}
+        \mathbf{x}_w^{(\textrm{neg})}, \frac{1}{|\mathcal{N}^{-}(v)|}
+        \sum_{w \in \mathcal{N}^{-}(v)} \mathbf{x}_w^{(\textrm{pos})},
+        \mathbf{x}_v^{(\textrm{neg})} \right]
+
+    otherwise.
+    In case :obj:`first_aggr` is :obj:`False`, the layer expects :obj:`x` to be
+    a tensor where :obj:`x[:, :in_channels]` denotes the positive node features
+    :math:`\mathbf{X}^{(\textrm{pos})}` and :obj:`x[:, in_channels:]` denotes
+    the negative node features :math:`\mathbf{X}^{(\textrm{neg})}`.
 
     Args:
-        in_channels (int): Size of each input sample.
+        in_channels (int): Size of each input sample, or :obj:`-1` to derive
+            the size from the first input(s) to the forward method.
         out_channels (int): Size of each output sample.
         first_aggr (bool): Denotes which aggregation formula to use.
-        bias (bool, optional): If set to `False`, the layer will not learn an
-            additive bias. (default: `True`)
+        bias (bool, optional): If set to :obj:`False`, the layer will not learn
+            an additive bias. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
             :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**
-          node features :math:`(|\mathcal{V}|, F_{in})`,
+          node features :math:`(|\mathcal{V}|, F_{in})` or
+          :math:`((|\mathcal{V_s}|, F_{in}), (|\mathcal{V_t}|, F_{in}))`
+          if bipartite,
           positive edge indices :math:`(2, |\mathcal{E}^{(+)}|)`,
           negative edge indices :math:`(2, |\mathcal{E}^{(-)}|)`
-        - **output:**
-          node features :math:`(|\mathcal{V}|, F_{out})`
+        - **outputs:** node features :math:`(|\mathcal{V}|, F_{out})` or
+          :math:`(|\mathcal{V_t}|, F_{out})` if bipartite
     """
 
     _cached_x: Optional[Tensor]
 
     def __init__(self, in_channels: int, out_channels: int, first_aggr: bool,
                  bias: bool = True, **kwargs):
-        """
-        Initialize the SignedConv layer.
-        """
         kwargs.setdefault('aggr', 'mean')
         super().__init__(**kwargs)
 
@@ -57,22 +77,19 @@ class SignedConv(MessagePassing):
         self.first_aggr = first_aggr
 
         if first_aggr:
-            self.lin_pos_l = Linear(in_channels, out_channels, bias_attr=False)
-            self.lin_pos_r = Linear(in_channels, out_channels, bias_attr=bias)
-            self.lin_neg_l = Linear(in_channels, out_channels, bias_attr=False)
-            self.lin_neg_r = Linear(in_channels, out_channels, bias_attr=bias)
+            self.lin_pos_l = Linear(in_channels, out_channels, False)
+            self.lin_pos_r = Linear(in_channels, out_channels, bias)
+            self.lin_neg_l = Linear(in_channels, out_channels, False)
+            self.lin_neg_r = Linear(in_channels, out_channels, bias)
         else:
-            self.lin_pos_l = Linear(2 * in_channels, out_channels, bias_attr=False)
-            self.lin_pos_r = Linear(in_channels, out_channels, bias_attr=bias)
-            self.lin_neg_l = Linear(2 * in_channels, out_channels, bias_attr=False)
-            self.lin_neg_r = Linear(in_channels, out_channels, bias_attr=bias)
+            self.lin_pos_l = Linear(2 * in_channels, out_channels, False)
+            self.lin_pos_r = Linear(in_channels, out_channels, bias)
+            self.lin_neg_l = Linear(2 * in_channels, out_channels, False)
+            self.lin_neg_r = Linear(in_channels, out_channels, bias)
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        """
-        Reset the parameters of the SignedConv layer.
-        """
         super().reset_parameters()
         self.lin_pos_l.reset_parameters()
         self.lin_pos_r.reset_parameters()
@@ -85,14 +102,11 @@ class SignedConv(MessagePassing):
         pos_edge_index: Adj,
         neg_edge_index: Adj,
     ):
-        """
-        Forward pass of the SignedConv layer.
-        """
         if isinstance(x, Tensor):
             x = (x, x)
 
+        # propagate_type: (x: PairTensor)
         if self.first_aggr:
-            # Aggregating positive and negative edge information separately
             out_pos = self.propagate(pos_edge_index, x=x)
             out_pos = self.lin_pos_l(out_pos)
             out_pos = out_pos + self.lin_pos_r(x[1])
@@ -131,16 +145,10 @@ class SignedConv(MessagePassing):
         return x_j
 
     def message_and_aggregate(self, adj_t: Adj, x: PairTensor) -> Tensor:
-        """
-        Message aggregation step.
-        """
         if isinstance(adj_t, SparseTensor):
             adj_t = adj_t.set_value(None, layout=None)
         return spmm(adj_t, x[0], reduce=self.aggr)
 
     def __repr__(self) -> str:
-        """
-        String representation of the SignedConv layer.
-        """
         return (f'{self.__class__.__name__}({self.in_channels}, '
                 f'{self.out_channels}, first_aggr={self.first_aggr})')

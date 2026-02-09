@@ -35,8 +35,8 @@ def test_hgt_conv_same_dimensions():
     assert str(conv) == 'HGTConv(-1, 16, heads=2)'
     out_dict1 = conv(x_dict, edge_index_dict)
     assert len(out_dict1) == 2
-    assert out_dict1['author'].shape== (4, 16)
-    assert out_dict1['paper'].shape== (6, 16)
+    assert tuple(out_dict1['author'].shape)== (4, 16)
+    assert tuple(out_dict1['paper'].shape)== (6, 16)
 
     out_dict2 = conv(x_dict, adj_t_dict1)
     assert len(out_dict1) == len(out_dict2)
@@ -88,8 +88,8 @@ def test_hgt_conv_different_dimensions():
     assert str(conv) == 'HGTConv(-1, 32, heads=2)'
     out_dict1 = conv(x_dict, edge_index_dict)
     assert len(out_dict1) == 2
-    assert out_dict1['author'].shape== (4, 32)
-    assert out_dict1['paper'].shape== (6, 32)
+    assert tuple(out_dict1['author'].shape)== (4, 32)
+    assert tuple(out_dict1['paper'].shape)== (6, 32)
 
     out_dict2 = conv(x_dict, adj_t_dict1)
     assert len(out_dict1) == len(out_dict2)
@@ -135,8 +135,8 @@ def test_hgt_conv_lazy():
     assert str(conv) == 'HGTConv(-1, 32, heads=2)'
     out_dict1 = conv(x_dict, edge_index_dict)
     assert len(out_dict1) == 2
-    assert out_dict1['author'].shape== (4, 32)
-    assert out_dict1['paper'].shape== (6, 32)
+    assert tuple(out_dict1['author'].shape)== (4, 32)
+    assert tuple(out_dict1['paper'].shape)== (6, 32)
 
     out_dict2 = conv(x_dict, adj_t_dict1)
     assert len(out_dict1) == len(out_dict2)
@@ -169,13 +169,13 @@ def test_hgt_conv_out_of_place():
     conv = HGTConv(-1, 64, data.metadata(), heads=1)
 
     x_dict, edge_index_dict = data.x_dict, data.edge_index_dict
-    assert x_dict['author'].shape== (4, 16)
-    assert x_dict['paper'].shape== (6, 32)
+    assert tuple(x_dict['author'].shape)== (4, 16)
+    assert tuple(x_dict['paper'].shape)== (6, 32)
 
     _ = conv(x_dict, edge_index_dict)
 
-    assert x_dict['author'].shape== (4, 16)
-    assert x_dict['paper'].shape== (6, 32)
+    assert tuple(x_dict['author'].shape)== (4, 16)
+    assert tuple(x_dict['paper'].shape)== (6, 32)
 
 
 def test_hgt_conv_missing_dst_node_type():
@@ -191,8 +191,8 @@ def test_hgt_conv_missing_dst_node_type():
     conv = HGTConv(-1, 64, data.metadata(), heads=1)
 
     out_dict = conv(data.x_dict, data.edge_index_dict)
-    assert out_dict['author'].shape== (4, 64)
-    assert out_dict['paper'].shape== (6, 64)
+    assert tuple(out_dict['author'].shape)== (4, 64)
+    assert tuple(out_dict['paper'].shape)== (6, 64)
     assert 'university' not in out_dict
 
 
@@ -210,7 +210,7 @@ def test_hgt_conv_missing_input_node_type():
     conv = HGTConv(-1, 64, metadata, heads=1)
 
     out_dict = conv(data.x_dict, data.edge_index_dict)
-    assert out_dict['paper'].shape== (6, 64)
+    assert tuple(out_dict['paper'].shape)== (6, 64)
     assert 'university' not in out_dict
 
 
@@ -229,8 +229,8 @@ def test_hgt_conv_missing_edge_type():
     conv = HGTConv(-1, 64, metadata, heads=1)
 
     out_dict = conv(data.x_dict, data.edge_index_dict)
-    assert out_dict['author'].shape== (4, 64)
-    assert out_dict['paper'].shape== (6, 64)
+    assert tuple(out_dict['author'].shape)== (4, 64)
+    assert tuple(out_dict['paper'].shape)== (6, 64)
     assert 'university' not in out_dict
 
 
@@ -243,16 +243,16 @@ if __name__ == '__main__':
 
     num_nodes, num_edges = 30_000, 300_000
     x_dict = {
-        'paper': paddle.randn(shape=[num_nodes, 64, place=args.device]),
-        'author': paddle.randn(shape=[num_nodes, 64, place=args.device]),
+        'paper': paddle.randn([num_nodes, 64], device=args.device),
+        'author': paddle.randn([num_nodes, 64], device=args.device),
     }
     edge_index_dict = {
         ('paper', 'to', 'paper'):
-        paddle.randint(num_nodes, (2, num_edges), place=args.device),
+        paddle.randint(num_nodes, (2, num_edges)).to(args.device),
         ('author', 'to', 'paper'):
-        paddle.randint(num_nodes, (2, num_edges), place=args.device),
+        paddle.randint(num_nodes, (2, num_edges)).to(args.device),
         ('paper', 'to', 'author'):
-        paddle.randint(num_nodes, (2, num_edges), place=args.device),
+        paddle.randint(num_nodes, (2, num_edges)).to(args.device),
     }
 
     conv = HGTConv(

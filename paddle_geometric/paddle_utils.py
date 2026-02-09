@@ -280,7 +280,7 @@ def _Tensor_index_copy_(self, dim, index, source):
     shape = self.shape
 
     new_index = []
-    for i in range(0, np.prod(shape[:dim])):
+    for i in range(0, int(np.prod(shape[:dim]))):
         new_index.append(index + i * len(index))
     new_index = paddle.concat(new_index)
     new_self = self.reshape_([-1] + shape[dim + 1:])

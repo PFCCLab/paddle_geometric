@@ -47,19 +47,20 @@ def gcn_norm(  # noqa: F811
             adj_t = paddle_sparse.fill_diag(adj_t, fill_value)
 
         deg = paddle_sparse.sum(adj_t, dim=1)
-        deg_inv_sqrt = deg.pow_(-0.5)
-        deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0.)
-        adj_t = paddle_sparse.mul(adj_t, deg_inv_sqrt.view(-1, 1))
-        adj_t = paddle_sparse.mul(adj_t, deg_inv_sqrt.view(1, -1))
+        deg_inv_sqrt = deg.pow(-0.5)
+        deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), 0., deg_inv_sqrt)
+
+        edge_index_norm, value_norm = to_edge_index(adj_t)
+        row, col = edge_index_norm[0], edge_index_norm[1]
+        value_norm = deg_inv_sqrt[row] * value_norm * deg_inv_sqrt[col]
+
+        from paddle_geometric.utils import to_paddle_csc_tensor
+        adj_t = to_paddle_csc_tensor(edge_index_norm, value_norm, (num_nodes, num_nodes))
 
         return adj_t
 
     if is_paddle_sparse_tensor(edge_index):
-        assert edge_index.size(0) == edge_index.size(1)
-
-        if edge_index.layout == paddle.sparse_csc:
-            raise NotImplementedError("Sparse CSC matrices are not yet "
-                                      "supported in 'gcn_norm'")
+        assert edge_index.shape[0] == edge_index.shape[1]
 
         adj_t = edge_index
         if add_self_loops:
@@ -69,11 +70,11 @@ def gcn_norm(  # noqa: F811
         col, row = edge_index[0], edge_index[1]
 
         deg = scatter(value, col, 0, dim_size=num_nodes, reduce='sum')
-        deg_inv_sqrt = deg.pow_(-0.5)
-        deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0)
+        deg_inv_sqrt = deg.pow(-0.5)
+        deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), 0., deg_inv_sqrt)
         value = deg_inv_sqrt[row] * value * deg_inv_sqrt[col]
 
-        return set_sparse_value(adj_t, value), None
+        return edge_index, value
 
     assert flow in ['source_to_target', 'target_to_source']
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
@@ -88,10 +89,9 @@ def gcn_norm(  # noqa: F811
     row, col = edge_index[0], edge_index[1]
     idx = col if flow == 'source_to_target' else row
     deg = scatter(edge_weight, idx, dim=0, dim_size=num_nodes, reduce='sum')
-    deg_inv_sqrt = deg.pow_(-0.5)
-    deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0)
+    deg_inv_sqrt = deg.pow(-0.5)
+    deg_inv_sqrt = paddle.where(deg_inv_sqrt == float('inf'), 0., deg_inv_sqrt)
     edge_weight = deg_inv_sqrt[row] * edge_weight * deg_inv_sqrt[col]
-
     return edge_index, edge_weight
 
 
@@ -144,7 +144,7 @@ class GCNConv(MessagePassing):
         bias (bool, optional): If set to :obj:`False`, the layer will not learn
             an additive bias. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**
@@ -193,7 +193,7 @@ class GCNConv(MessagePassing):
                           weight_initializer='glorot')
 
         if bias:
-            self.bias = paddle.create_parameter(shape=[in_channels], dtype='float32')
+            self.bias = self.create_parameter([out_channels])
         else:
             self.register_parameter('bias', None)
 
@@ -216,6 +216,10 @@ class GCNConv(MessagePassing):
                              f"Please try other layers such as 'SAGEConv' or "
                              f"'GraphConv' instead")
 
+        is_sparse_x = False
+        if is_paddle_sparse_tensor(x):
+            is_sparse_x = True
+            x = x.to_dense()
 
         if self.normalize:
             if isinstance(edge_index, Tensor):
@@ -235,7 +239,7 @@ class GCNConv(MessagePassing):
                 cache = self._cached_adj_t
                 if cache is None:
                     edge_index = gcn_norm(  # yapf: disable
-                        edge_index, edge_weight, x.size(self.node_dim),
+                        edge_index, edge_weight, x.shape[self.node_dim],
                         self.improved, self.add_self_loops, self.flow, x.dtype)
                     if self.cached:
                         self._cached_adj_t = edge_index

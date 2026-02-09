@@ -4,7 +4,6 @@ from typing import Optional
 import paddle
 import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Layer
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.dense.linear import Linear
@@ -102,14 +101,14 @@ class HypergraphConv(MessagePassing):
             self.concat = concat
             self.negative_slope = negative_slope
             self.dropout = dropout
-            self.lin = Linear(in_channels, heads * out_channels, bias_attr=False,
-                              weight_attr=paddle.nn.initializer.XavierUniform())
+            self.lin = Linear(in_channels, heads * out_channels, bias=False,
+                              weight_initializer='glorot')
             self.att = self.create_parameter(shape=[1, heads, 2 * out_channels])
         else:
             self.heads = 1
             self.concat = True
-            self.lin = Linear(in_channels, out_channels, bias_attr=False,
-                              weight_attr=paddle.nn.initializer.XavierUniform())
+            self.lin = Linear(in_channels, out_channels, bias=False,
+                              weight_initializer='glorot')
 
         if bias and concat:
             self.bias = self.create_parameter(shape=[heads * out_channels])
@@ -121,11 +120,11 @@ class HypergraphConv(MessagePassing):
         self.reset_parameters()
 
     def reset_parameters(self):
+        super().reset_parameters()
         self.lin.reset_parameters()
         if self.use_attention:
             glorot(self.att)
-        if self.bias is not None:
-            zeros(self.bias)
+        zeros(self.bias)
 
     def forward(self, x: Tensor, hyperedge_index: Tensor,
                 hyperedge_weight: Optional[Tensor] = None,

@@ -1,13 +1,13 @@
 import typing
 from typing import Union
 
-import torch
-from torch import Tensor
+import paddle
+from paddle import Tensor
 
-import torch_geometric.typing
-from torch_geometric import is_compiling
-from torch_geometric.utils import is_sparse
-from torch_geometric.typing import Size, SparseTensor
+import paddle_geometric.typing
+from paddle_geometric import is_compiling
+from paddle_geometric.utils import is_sparse
+from paddle_geometric.typing import Size, SparseTensor
 {% for module in modules %}
 from {{module}} import *
 {%- endfor %}
@@ -36,7 +36,7 @@ def edge_updater(
     )
 
     # Begin Edge Update Forward Pre Hook #######################################
-    if not torch.jit.is_scripting() and not is_compiling():
+    if not _is_scripting() and not is_compiling():
         for hook in self._edge_update_forward_pre_hooks.values():
             hook_kwargs = dict(
 {%- for name in collect_param_dict %}
@@ -60,7 +60,7 @@ def edge_updater(
     )
 
     # Begin Edge Update Forward Hook ###########################################
-    if not torch.jit.is_scripting() and not is_compiling():
+    if not _is_scripting() and not is_compiling():
         for hook in self._edge_update_forward_hooks.values():
             hook_kwargs = dict(
 {%- for name in collect_param_dict %}

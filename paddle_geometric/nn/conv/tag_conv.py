@@ -1,15 +1,12 @@
-import warnings
-from typing import Optional
-
 import paddle
 from paddle import Tensor
 
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.conv.gcn_conv import gcn_norm
 from paddle_geometric.nn.dense.linear import Linear
 from paddle_geometric.nn.inits import zeros
 from paddle_geometric.typing import Adj, OptTensor, SparseTensor
 from paddle_geometric.utils import spmm
-from paddle_geometric.nn.conv.gcn_conv import gcn_norm
 
 
 class TAGConv(MessagePassing):
@@ -46,8 +43,6 @@ class TAGConv(MessagePassing):
         - **output:** node features :math:`(|\mathcal{V}|, F_{out})`
     """
 
-    _cached_h: Optional[Tensor]
-
     def __init__(self, in_channels: int, out_channels: int, K: int = 3,
                  bias: bool = True, normalize: bool = True, **kwargs):
         kwargs.setdefault('aggr', 'add')
@@ -63,9 +58,9 @@ class TAGConv(MessagePassing):
         ])
 
         if bias:
-            self.bias = paddle.nn.Parameter(paddle.empty(out_channels))
+            self.bias = self.create_parameter(shape=[out_channels])
         else:
-            self.register_parameter('bias', None)
+            self.add_parameter('bias', None)
 
         self.reset_parameters()
 
@@ -78,31 +73,31 @@ class TAGConv(MessagePassing):
     def forward(self, x: Tensor, edge_index: Adj,
                 edge_weight: OptTensor = None) -> Tensor:
 
-        cache = self._cached_h
-        if cache is None:
-            if isinstance(edge_index, paddle.Tensor):
+        if self.normalize:
+            if isinstance(edge_index, Tensor):
                 edge_index, edge_weight = gcn_norm(  # yapf: disable
-                    edge_index, edge_weight, x.shape[0], False,
-                    self.add_self_loops, self.flow, dtype=x.dtype)
+                    edge_index, edge_weight, x.shape[self.node_dim],
+                    improved=False, add_self_loops=False, flow=self.flow,
+                    dtype=x.dtype)
             elif isinstance(edge_index, SparseTensor):
                 edge_index = gcn_norm(  # yapf: disable
-                    edge_index, edge_weight, x.shape[0], False,
-                    self.add_self_loops, self.flow, dtype=x.dtype)
+                    edge_index, edge_weight, x.shape[self.node_dim],
+                    improved=False, add_self_loops=False, flow=self.flow,
+                    dtype=x.dtype)
 
-            h = x * self.alpha
-            for k in range(self.K):
-                # propagate_type: (x: Tensor, edge_weight: OptTensor)
-                x = self.propagate(edge_index, x=x, edge_weight=edge_weight)
-                h = h + (1 - self.alpha) / self.K * x
-            if self.cached:
-                self._cached_h = h
-        else:
-            h = cache.detach()
+        out = self.lins[0](x)
+        for lin in self.lins[1:]:
+            # propagate_type: (x: Tensor, edge_weight: OptTensor)
+            x = self.propagate(edge_index, x=x, edge_weight=edge_weight)
+            out = out + lin(x)
 
-        return self.lin(h)
+        if self.bias is not None:
+            out = out + self.bias
 
-    def message(self, x_j: Tensor, edge_weight: Tensor) -> Tensor:
-        return edge_weight.view(-1, 1) * x_j
+        return out
+
+    def message(self, x_j: Tensor, edge_weight: OptTensor) -> Tensor:
+        return x_j if edge_weight is None else edge_weight.view(-1, 1) * x_j
 
     def message_and_aggregate(self, adj_t: Adj, x: Tensor) -> Tensor:
         return spmm(adj_t, x, reduce=self.aggr)

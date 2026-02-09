@@ -23,5 +23,5 @@ def test_static_graph():
         assert out1.shape[0] == 6
         conv.node_dim = 1
         out2 = conv(x, edge_index)
-        assert out2.size()[:2] == (2, 3)
+        assert tuple(out2.shape[:2]) == (2, 3)
         assert paddle.allclose(out1, out2.view(-1, out2.shape[-1]))

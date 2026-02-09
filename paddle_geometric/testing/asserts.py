@@ -14,7 +14,7 @@ from paddle_geometric.utils import to_paddle_coo_tensor, to_paddle_csc_tensor
 SPARSE_LAYOUTS: List[Union[str, NotImplementedError]] = [
     'paddle_sparse',
     NotImplementedError("paddle.sparse_csc is not implemented in Paddle."),
-    NotImplementedError("paddle.sparse_coo is not implemented in Paddle."),
+    'paddle.sparse_coo',
 ]
 
 def assert_module(
@@ -95,6 +95,9 @@ def assert_module(
         raise NotImplementedError
 
     for layout in (test_sparse_layouts or []):
+        if isinstance(layout, NotImplementedError):
+            continue
+
         # TODO Add support for values.
         if layout == 'paddle_sparse':
             if not WITH_PADDLE_SPARSE:
@@ -106,11 +109,15 @@ def assert_module(
             )
             adj_t = adj.t()
 
-        elif layout == paddle.sparse_csc:
+        elif isinstance(layout, str) and layout == 'paddle.sparse_csc':
+            if not hasattr(paddle, 'sparse_csc'):
+                continue
             adj = to_paddle_csc_tensor(edge_index, size=sparse_size)
             adj_t = adj.t()
 
-        elif layout == paddle.sparse_coo:
+        elif isinstance(layout, str) and layout == 'paddle.sparse_coo':
+            if not hasattr(paddle, 'sparse_coo'):
+                continue
             warnings.filterwarnings('ignore', ".*to CSR format.*")
             adj = to_paddle_coo_tensor(edge_index, size=sparse_size)
             adj_t = adj.t().coalesce()

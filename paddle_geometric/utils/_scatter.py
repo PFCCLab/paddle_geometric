@@ -64,14 +64,26 @@ def scatter(
     # For "any" reduction, we use regular `put_along_axis_`:
     if reduce == 'any':
         index = broadcast(index, src, dim)
-        return src.new_zeros(size).scatter_(dim=dim, index=index, src=src)
+        out = src.new_zeros(size)
+        return paddle.put_along_axis(out,
+                                     index,
+                                     src,
+                                     axis=dim,
+                                     reduce='assign',
+                                     include_self=False)
 
     # For "sum" and "mean" reduction, we make use of `put_along_axis_`:
     if reduce == 'sum' or reduce == 'add':
+        if index.numel() == 0:
+            return src.new_zeros(size)
+
         index = broadcast(index, src, dim)
         return src.new_zeros(size).scatter_add_(dim=dim, index=index, src=src)
 
     if reduce == 'mean':
+        if index.numel() == 0:
+            return src.new_zeros(size)
+
         count = paddle.zeros(dim_size, device=src.place)
         count.scatter_add_(
             dim=0,
@@ -88,41 +100,48 @@ def scatter(
     # For "min" and "max" reduction, we prefer `scatter_reduce_` on CPU or
     # in case the input does not require gradients:PADDLE
     if reduce in ['min', 'max', 'amin', 'amax']:
-        # if (not paddle_geometric.typing.WITH_PADDLE_SCATTER
-        #         or is_compiling() \
-        #           or is_in_onnx_export() \
-        #           or not src.place.is_gpu_place()
-        #         or not src.requires_grad):
-        if not paddle_geometric.typing.WITH_PADDLE_SCATTER:
-            if hasattr(src, 'requires_grad') and src.requires_grad:
-                if (src.place.is_gpu_place() and src.requires_grad
-                        and not is_compiling() and not is_in_onnx_export()):
-                    warnings.warn(f"The usage of `scatter(reduce='{reduce}')` "
-                                  f"can be accelerated via the 'torch-scatter'"
-                                  f" package, but it was not found")
+        if paddle_geometric.typing.WITH_PADDLE_SCATTER:
+            return paddle_scatter.scatter(src, index, dim, dim_size=dim_size,
+                                          reduce=reduce[-3:])
 
-            raise NotImplementedError('Please install paddle_scatter')
+        if hasattr(src, 'requires_grad') and src.requires_grad:
+            if (src.place.is_gpu_place() and src.requires_grad
+                    and not is_compiling() and not is_in_onnx_export()):
+                warnings.warn(f"The usage of `scatter(reduce='{reduce}')` "
+                              f"can be accelerated via the 'torch-scatter'"
+                              f" package, but it was not found")
 
-            # index = broadcast(index, src, dim)
-            # if not is_in_onnx_export():
-            #     return src.new_zeros(size).scatter_reduce_(
-            #         dim, index, src, reduce=f'a{reduce[-3:]}',
-            #         include_self=False)
+        # Fallback implementation (slow, but works for correctness/tests).
+        reduce_kind = 'max' if reduce in ['max', 'amax'] else 'min'
+        if dim_size == 0:
+            return src.new_zeros(size)
 
-            # fill = paddle.full(  # type: ignore
-            #     shape=[1, ],
-            #     fill_value=src.min() if 'max' in reduce else src.max(),
-            #     dtype=src.dtype,
-            # ).expand_as(src)
-            # out = paddle.zeros(size).scatter_reduce_(
-            #     dim, index, fill, reduce=f'a{reduce[-3:]}',
-            #     include_self=True)
-            # return out.scatter_reduce_(dim, index, src,
-            #                             reduce=f'a{reduce[-3:]}',
-            #                             include_self=True)
+        reduced_shape = list(src.shape)
+        del reduced_shape[dim]
 
-        return paddle_scatter.scatter(src, index, dim, dim_size=dim_size,
-                                      reduce=reduce[-3:])
+        if src.dtype in (paddle.float16, paddle.float32, paddle.float64,
+                         paddle.bfloat16):
+            fill_value = paddle.min(src).item() if reduce_kind == 'max' else paddle.max(src).item()
+        else:
+            info = paddle.iinfo(src.dtype)
+            fill_value = info.min if reduce_kind == 'max' else info.max
+
+        outs = []
+        for idx in range(dim_size):
+            mask = index == idx
+            if mask.astype('int64').sum().item() > 0:
+                sel = paddle.index_select(src, paddle.nonzero(mask).flatten(),
+                                          axis=dim)
+                if reduce_kind == 'max':
+                    out = paddle.max(sel, axis=dim)
+                else:
+                    out = paddle.min(sel, axis=dim)
+            else:
+                out = paddle.full(reduced_shape, fill_value, dtype=src.dtype,
+                                  device=src.place)
+            outs.append(out)
+
+        return paddle.stack(outs, axis=dim)
 
     # For "mul" reduction, we prefer `scatter_reduce_` on CPU:
     if reduce == 'mul':
@@ -136,9 +155,13 @@ def scatter(
 
             index = broadcast(index, src, dim)
             # We initialize with `one` here to match `scatter_mul` output:
-            return paddle.ones(size).scatter_reduce_(dim, index, src,
-                                                     reduce='prod',
-                                                     include_self=True)
+            out = paddle.ones(size, dtype=src.dtype)
+            return paddle.put_along_axis(out,
+                                         index,
+                                         src,
+                                         axis=dim,
+                                         reduce='mul',
+                                         include_self=True)
 
         return paddle_scatter.scatter(src, index, dim, dim_size=dim_size,
                                       reduce='mul')

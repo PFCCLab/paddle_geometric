@@ -4,8 +4,6 @@ from typing import Optional
 import paddle
 import paddle.nn.functional as F
 from paddle import Tensor
-from paddle.nn import Layer, Linear
-from paddle.nn.initializer import XavierUniform, Constant
 
 from paddle_geometric.nn.conv import MessagePassing
 from paddle_geometric.nn.dense.linear import Linear
@@ -26,6 +24,57 @@ class SuperGATConv(MessagePassing):
     r"""The self-supervised graph attentional operator from the `"How to Find
     Your Friendly Neighborhood: Graph Attention Design with Self-Supervision"
     <https://openreview.net/forum?id=Wi5KUNlqWty>`_ paper.
+
+    .. math::
+
+        \mathbf{x}^{\prime}_i = \alpha_{i,i}\mathbf{\Theta}\mathbf{x}_{i} +
+        \sum_{j \in \mathcal{N}(i)} \alpha_{i,j}\mathbf{\Theta}\mathbf{x}_{j},
+
+    where the two types of attention :math:`\alpha_{i,j}^{\mathrm{MX\ or\ SD}}`
+    are computed as:
+
+    .. math::
+
+        \alpha_{i,j}^{\mathrm{MX\ or\ SD}} &=
+        \frac{
+        \exp\left(\mathrm{LeakyReLU}\left(
+            e_{i,j}^{\mathrm{MX\ or\ SD}}
+        \right)\right)}
+        {\sum_{k \in \mathcal{N}(i) \cup \{ i \}}
+        \exp\left(\mathrm{LeakyReLU}\left(
+            e_{i,k}^{\mathrm{MX\ or\ SD}}
+        \right)\right)}
+
+        e_{i,j}^{\mathrm{MX}} &= \mathbf{a}^{\top}
+            [\mathbf{\Theta}\mathbf{x}_i \, \Vert \,
+             \mathbf{\Theta}\mathbf{x}_j]
+            \cdot \sigma \left(
+                \left( \mathbf{\Theta}\mathbf{x}_i \right)^{\top}
+                \mathbf{\Theta}\mathbf{x}_j
+            \right)
+
+        e_{i,j}^{\mathrm{SD}} &= \frac{
+            \left( \mathbf{\Theta}\mathbf{x}_i \right)^{\top}
+            \mathbf{\Theta}\mathbf{x}_j
+        }{ \sqrt{d} }
+
+    The self-supervised task is a link prediction using the attention values
+    as input to predict the likelihood :math:`\phi_{i,j}^{\mathrm{MX\ or\ SD}}`
+    that an edge exists between nodes:
+
+    .. math::
+
+        \phi_{i,j}^{\mathrm{MX}} &= \sigma \left(
+            \left( \mathbf{\Theta}\mathbf{x}_i \right)^{\top}
+            \mathbf{\Theta}\mathbf{x}_j
+        \right)
+
+        \phi_{i,j}^{\mathrm{SD}} &= \sigma \left(
+            \frac{
+                \left( \mathbf{\Theta}\mathbf{x}_i \right)^{\top}
+                \mathbf{\Theta}\mathbf{x}_j
+            }{ \sqrt{d} }
+        \right)
 
     Args:
         in_channels (int): Size of each input sample, or :obj:`-1` to derive
@@ -57,7 +106,16 @@ class SuperGATConv(MessagePassing):
             when negative sampling is performed. (default: :obj:`False`)
         **kwargs (optional): Additional arguments of
             :class:`paddle_geometric.nn.conv.MessagePassing`.
+
+    Shapes:
+        - **input:**
+          node features :math:`(|\mathcal{V}|, F_{in})`,
+          edge indices :math:`(2, |\mathcal{E}|)`,
+          negative edge indices :math:`(2, |\mathcal{E}^{(-)}|)` *(optional)*
+        - **output:** node features :math:`(|\mathcal{V}|, H * F_{out})`
     """
+    att_x: OptTensor
+    att_y: OptTensor
 
     def __init__(self, in_channels: int, out_channels: int, heads: int = 1,
                  concat: bool = True, negative_slope: float = 0.2,
@@ -83,17 +141,15 @@ class SuperGATConv(MessagePassing):
         assert attention_type in ['MX', 'SD']
         assert 0.0 < neg_sample_ratio and 0.0 < edge_sample_ratio <= 1.0
 
-        self.lin = Linear(in_channels, heads * out_channels, bias_attr=False)
-        self._glorot_initializer(self.lin.weight)
+        self.lin = Linear(in_channels, heads * out_channels, bias=False,
+                          weight_initializer='glorot')
 
         if self.attention_type == 'MX':
             self.att_l = self.create_parameter(
                 shape=(1, heads, out_channels),
-                default_initializer=XavierUniform()
             )
             self.att_r = self.create_parameter(
                 shape=(1, heads, out_channels),
-                default_initializer=XavierUniform()
             )
         else:  # self.attention_type == 'SD'
             self.att_l = None
@@ -102,15 +158,9 @@ class SuperGATConv(MessagePassing):
         self.att_x = self.att_y = None  # x/y for self-supervision
 
         if bias and concat:
-            self.bias = self.create_parameter(
-                shape=(heads * out_channels,),
-                default_initializer=Constant(0.0)
-            )
+            self.bias = self.create_parameter(shape=(heads * out_channels,))
         elif bias and not concat:
-            self.bias = self.create_parameter(
-                shape=(out_channels,),
-                default_initializer=Constant(0.0)
-            )
+            self.bias = self.create_parameter(shape=(out_channels,))
         else:
             self.bias = None
 
@@ -118,21 +168,25 @@ class SuperGATConv(MessagePassing):
     def reset_parameters(self):
         super().reset_parameters()
         self.lin.reset_parameters()
-        self._glorot_initializer(self.att_l)
-        self._glorot_initializer(self.att_r)
-        self._zeros_initializer(self.bias)
+        glorot(self.att_l)
+        glorot(self.att_r)
+        zeros(self.bias)
 
     def forward(
         self,
         x: Tensor,
-        edge_index: Tensor,
-        neg_edge_index: Optional[Tensor] = None,
-        batch: Optional[Tensor] = None,
+        edge_index: Adj,
+        neg_edge_index: OptTensor = None,
+        batch: OptTensor = None,
     ) -> Tensor:
         N, H, C = x.shape[0], self.heads, self.out_channels
 
         if self.add_self_loops:
-            edge_index = add_self_loops(edge_index, num_nodes=N)
+            if isinstance(edge_index, SparseTensor):
+                edge_index = paddle_sparse.fill_diag(edge_index, 1.)
+            else:
+                edge_index, _ = remove_self_loops(edge_index)
+                edge_index, _ = add_self_loops(edge_index, num_nodes=N)
 
         x = self.lin(x).reshape([-1, H, C])
 
@@ -140,6 +194,9 @@ class SuperGATConv(MessagePassing):
         out = self.propagate(edge_index, x=x)
 
         if self.training:
+            if isinstance(edge_index, SparseTensor):
+                col, row, _ = edge_index.coo()
+                edge_index = paddle.stack([row, col], axis=0)
             pos_edge_index = self.positive_sampling(edge_index)
 
             pos_att = self.get_attention(
@@ -162,7 +219,7 @@ class SuperGATConv(MessagePassing):
             )
 
             self.att_x = paddle.concat([pos_att, neg_att], axis=0)
-            self.att_y = paddle.zeros_like(self.att_x)
+            self.att_y = paddle.zeros([self.att_x.shape[0]], dtype=self.att_x.dtype)
             self.att_y[:pos_edge_index.shape[1]] = 1.
 
         if self.concat:
@@ -179,10 +236,10 @@ class SuperGATConv(MessagePassing):
                 size_i: Optional[int]) -> Tensor:
         alpha = self.get_attention(edge_index_i, x_i, x_j, num_nodes=size_i)
         alpha = F.dropout(alpha, p=self.dropout, training=self.training)
-        return x_j * alpha.unsqueeze(-1)
+        return x_j * alpha.reshape([-1, self.heads, 1])
 
     def negative_sampling(self, edge_index: Tensor, num_nodes: int,
-                          batch: Optional[Tensor] = None) -> Tensor:
+                          batch: OptTensor = None) -> Tensor:
         num_neg_samples = int(self.neg_sample_ratio * self.edge_sample_ratio *
                               edge_index.shape[1])
 
@@ -214,7 +271,8 @@ class SuperGATConv(MessagePassing):
             if return_logits:
                 return logits
 
-            alpha = paddle.sum(x_j * self.att_l, axis=-1) + paddle.sum(x_i * self.att_r, axis=-1)
+            alpha = paddle.sum(x_j * self.att_l, axis=-1) + paddle.sum(
+                x_i * self.att_r, axis=-1)
             alpha = alpha * F.sigmoid(logits)
 
         else:  # self.attention_type == 'SD'
@@ -241,10 +299,3 @@ class SuperGATConv(MessagePassing):
                 f'{self.out_channels}, heads={self.heads}, '
                 f'type={self.attention_type})')
 
-    def _glorot_initializer(self, param):
-        if param is not None:
-            paddle.nn.initializer.XavierUniform()(param)
-
-    def _zeros_initializer(self, param):
-        if param is not None:
-            paddle.assign(paddle.zeros_like(param), param)

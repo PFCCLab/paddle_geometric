@@ -1,12 +1,14 @@
-from typing import Optional, Tuple
+from typing import Optional
 
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer, Linear, ReLU, Sequential, Sigmoid, LayerList
-from paddle.nn.initializer import Constant, Uniform
+from paddle.nn import ReLU, Sequential, Sigmoid
 
 from paddle_geometric.nn.conv import MessagePassing
-from paddle_geometric.typing import Adj, SparseTensor
+from paddle_geometric.nn.conv.gcn_conv import gcn_norm
+from paddle_geometric.nn.dense.linear import Linear
+from paddle_geometric.nn.inits import glorot, zeros
+from paddle_geometric.typing import Adj, OptTensor, SparseTensor
 from paddle_geometric.utils import spmm
 
 
@@ -59,7 +61,7 @@ class PDNConv(MessagePassing):
         self.add_self_loops = add_self_loops
         self.normalize = normalize
 
-        self.lin = Linear(in_channels, out_channels, bias_attr=False)
+        self.lin = Linear(in_channels, out_channels, bias=False)
 
         self.mlp = Sequential(
             Linear(edge_dim, hidden_channels),
@@ -69,23 +71,23 @@ class PDNConv(MessagePassing):
         )
 
         if bias:
-            self.bias = self.create_parameter(shape=[out_channels], default_initializer=Constant(0.0))
+            self.bias = self.create_parameter(shape=[out_channels])
         else:
             self.bias = None
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.lin.weight.set_value(paddle.uniform(self.lin.weight.shape, min=-1.0, max=1.0))
-        self.mlp[0].weight.set_value(paddle.uniform(self.mlp[0].weight.shape, min=-1.0, max=1.0))
-        self.mlp[2].weight.set_value(paddle.uniform(self.mlp[2].weight.shape, min=-1.0, max=1.0))
-        self.mlp[0].bias.set_value(paddle.zeros_like(self.mlp[0].bias))
-        self.mlp[2].bias.set_value(paddle.zeros_like(self.mlp[2].bias))
-        if self.bias is not None:
-            self.bias.set_value(paddle.zeros_like(self.bias))
+        super().reset_parameters()
+        glorot(self.lin.weight)
+        glorot(self.mlp[0].weight)
+        glorot(self.mlp[2].weight)
+        zeros(self.mlp[0].bias)
+        zeros(self.mlp[2].bias)
+        zeros(self.bias)
 
     def forward(self, x: Tensor, edge_index: Adj,
-                edge_attr: Optional[Tensor] = None) -> Tensor:
+                edge_attr: OptTensor = None) -> Tensor:
 
         if isinstance(edge_index, SparseTensor):
             edge_attr = edge_index.storage.value()

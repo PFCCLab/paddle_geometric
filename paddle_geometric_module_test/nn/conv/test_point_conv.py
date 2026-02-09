@@ -22,14 +22,14 @@ def test_point_net_conv():
     conv = PointNetConv(local_nn, global_nn)
     assert str(conv) == (
         'PointNetConv(local_nn=Sequential(\n'
-        '  (0): Linear(in_features=19, out_features=32, bias=True)\n'
+        '  (0): Linear(in_features=19, out_features=32, dtype=float32)\n'
         '  (1): ReLU()\n'
-        '  (2): Linear(in_features=32, out_features=32, bias=True)\n'
+        '  (2): Linear(in_features=32, out_features=32, dtype=float32)\n'
         '), global_nn=Sequential(\n'
-        '  (0): Linear(in_features=32, out_features=32, bias=True)\n'
+        '  (0): Linear(in_features=32, out_features=32, dtype=float32)\n'
         '))')
     out = conv(x1, pos1, edge_index)
-    assert out.shape== (4, 32)
+    assert tuple(out.shape)== (4, 32)
     assert paddle.allclose(conv(x1, pos1, adj1.t()), out, atol=1e-6)
 
     if paddle_geometric.typing.WITH_PADDLE_SPARSE:
@@ -47,7 +47,7 @@ def test_point_net_conv():
     adj1 = to_paddle_csc_tensor(edge_index, size=(4, 2))
 
     out = conv(x1, (pos1, pos2), edge_index)
-    assert out.shape== (2, 32)
+    assert tuple(out.shape)== (2, 32)
     assert paddle.allclose(conv((x1, None), (pos1, pos2), edge_index), out)
     assert paddle.allclose(conv(x1, (pos1, pos2), adj1.t()), out, atol=1e-6)
     assert paddle.allclose(conv((x1, None), (pos1, pos2), adj1.t()), out,

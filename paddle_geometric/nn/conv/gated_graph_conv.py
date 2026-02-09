@@ -1,9 +1,9 @@
 import paddle
 from paddle import Tensor
-from paddle.nn import Layer, GRUCell, Linear
-from paddle.nn.initializer import Uniform
 
 from paddle_geometric.nn.conv import MessagePassing
+from paddle_geometric.nn.inits import reset, uniform
+from paddle_geometric.paddle_utils import GRUCell
 from paddle_geometric.typing import Adj, OptTensor
 from paddle_geometric.utils import spmm
 
@@ -20,6 +20,12 @@ class GatedGraphConv(MessagePassing):
 
         \mathbf{h}_i^{(l+1)} &= \textrm{GRU} (\mathbf{m}_i^{(l+1)},
         \mathbf{h}_i^{(l)})
+
+    up to representation :math:`\mathbf{h}_i^{(L)}`.
+    The number of input channels of :math:`\mathbf{x}_i` needs to be less or
+    equal than :obj:`out_channels`.
+    :math:`e_{j,i}` denotes the edge weight from source node :obj:`j` to target
+    node :obj:`i` (default: :obj:`1`)
 
     Args:
         out_channels (int): Size of each output sample.
@@ -48,15 +54,22 @@ class GatedGraphConv(MessagePassing):
 
         self.weight = self.create_parameter(
             shape=[num_layers, out_channels, out_channels],
-            default_initializer=Uniform()
         )
-        self.rnn = GRUCell(input_size=out_channels, hidden_size=out_channels, bias_attr=bias)
+        bias_ih_attr = None if bias else False
+        bias_hh_attr = None if bias else False
+        self.rnn = GRUCell(out_channels, out_channels,
+                           bias_ih_attr=bias_ih_attr,
+                           bias_hh_attr=bias_hh_attr)
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.weight.set_value(paddle.uniform(self.weight.shape, min=-1.0, max=1.0))
-        self.rnn.reset_parameters()
+        super().reset_parameters()
+        uniform(self.out_channels, self.weight)
+        if hasattr(self.rnn, "reset_parameters"):
+            self.rnn.reset_parameters()
+        else:
+            reset(self.rnn)
 
     def forward(self, x: Tensor, edge_index: Adj, edge_weight: OptTensor = None) -> Tensor:
         if x.shape[-1] > self.out_channels:
@@ -64,7 +77,9 @@ class GatedGraphConv(MessagePassing):
                              'be larger than the number of output channels')
 
         if x.shape[-1] < self.out_channels:
-            zero = paddle.zeros([x.shape[0], self.out_channels - x.shape[-1]], dtype=x.dtype)
+            zero = paddle.zeros([x.shape[0], self.out_channels - x.shape[-1]],
+                                dtype=x.dtype,
+                                device=x.place)
             x = paddle.concat([x, zero], axis=1)
 
         for i in range(self.num_layers):
@@ -76,10 +91,11 @@ class GatedGraphConv(MessagePassing):
         return x
 
     def message(self, x_j: Tensor, edge_weight: OptTensor):
-        return x_j if edge_weight is None else edge_weight.unsqueeze(-1) * x_j
+        return x_j if edge_weight is None else edge_weight.view(-1, 1) * x_j
 
     def message_and_aggregate(self, adj_t: Adj, x: Tensor) -> Tensor:
         return spmm(adj_t, x, reduce=self.aggr)
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.out_channels}, num_layers={self.num_layers})'
+        return (f'{self.__class__.__name__}({self.out_channels}, '
+                f'num_layers={self.num_layers})')

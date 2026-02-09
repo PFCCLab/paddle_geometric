@@ -40,7 +40,7 @@ class SGConv(MessagePassing):
         bias (bool, optional): If set to :obj:`False`, the layer will not learn
             an additive bias. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
-            :class:`torch_geometric.nn.conv.MessagePassing`.
+            :class:`paddle_geometric.nn.conv.MessagePassing`.
 
     Shapes:
         - **input:**
@@ -83,11 +83,11 @@ class SGConv(MessagePassing):
         if cache is None:
             if isinstance(edge_index, Tensor):
                 edge_index, edge_weight = gcn_norm(  # yapf: disable
-                    edge_index, edge_weight, x.size(self.node_dim), False,
+                    edge_index, edge_weight, x.shape[self.node_dim], False,
                     self.add_self_loops, self.flow, dtype=x.dtype)
             elif isinstance(edge_index, SparseTensor):
                 edge_index = gcn_norm(  # yapf: disable
-                    edge_index, edge_weight, x.size(self.node_dim), False,
+                    edge_index, edge_weight, x.shape[self.node_dim], False,
                     self.add_self_loops, self.flow, dtype=x.dtype)
 
             for k in range(self.K):
@@ -101,7 +101,7 @@ class SGConv(MessagePassing):
         return self.lin(x)
 
     def message(self, x_j: Tensor, edge_weight: Tensor) -> Tensor:
-        return edge_weight.view(-1, 1) * x_j
+        return edge_weight.reshape([-1, 1]) * x_j
 
     def message_and_aggregate(self, adj_t: Adj, x: Tensor) -> Tensor:
         return spmm(adj_t, x, reduce=self.aggr)
