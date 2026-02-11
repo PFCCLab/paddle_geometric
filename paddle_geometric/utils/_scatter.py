@@ -173,7 +173,7 @@ def broadcast(src: paddle.Tensor, ref: paddle.Tensor,
               dim: int) -> paddle.Tensor:
     dim = ref.dim() + dim if dim < 0 else dim
     size = (1, ) * dim + (-1, ) + (1, ) * (ref.dim() - dim - 1)
-    return src.view(size).expand_as(y=ref)
+    return src.reshape(size).expand_as(y=ref)
 
 
 def scatter_argmax(
